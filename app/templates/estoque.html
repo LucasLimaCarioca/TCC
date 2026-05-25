@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+<div class="stock-container">
+
+    <div class="stock-title">
+        Controle de Estoque
+    </div>
+
+    <table class="stock-table">
+
+        <tr>
+            <th>Produto</th>
+            <th>Quantidade</th>
+            <th>Estoque Mínimo</th>
+            <th>Status</th>
+        </tr>
+
+        {% for item in estoque %}
+
+        <tr class="{% if item.quantidade <= item.minimo %}
+                        low-stock
+                   {% else %}
+                        ok-stock
+                   {% endif %}">
+
+            <td>{{ item.nome }}</td>
+
+            <td>{{ item.quantidade }}</td>
+
+            <td>{{ item.minimo }}</td>
+
+            <td>
+
+                {% if item.quantidade <= item.minimo %}
+                    Baixo
+                {% else %}
+                    OK
+                {% endif %}
+
+            </td>
+
+        </tr>
+
+        {% endfor %}
+
+    </table>
+
+</div>
+
+{% endblock %}

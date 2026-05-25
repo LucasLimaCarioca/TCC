@@ -1,0 +1,7 @@
+spade
+pandas
+scikit-learn
+sqlite3
+streamlit
+openai
+python-dotenv
