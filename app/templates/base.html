@@ -1,20 +1,27 @@
 <!DOCTYPE html>
 <html lang="pt-br">
+
 <head>
+
     <meta charset="UTF-8">
+
     <title>{{ titulo }}</title>
 
     <link rel="stylesheet"
-          href="{{ url_for('static', filename='css/style.css') }}">
+          href="{{ url_for('static',
+          filename='css/style.css') }}">
+
 </head>
+
 <body>
 
 <div class="topbar">
-    Sistema Multiagente - Controle de Estoque
+    Atendimento Virtual - Sorveteria
 </div>
 
 {% block content %}
 {% endblock %}
 
 </body>
+
 </html>

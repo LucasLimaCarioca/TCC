@@ -2,6 +2,7 @@ from flask import Flask
 from app.database import db
 
 def create_app():
+
     app = Flask(__name__)
 
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///sorvetes.db'
@@ -10,9 +11,7 @@ def create_app():
     db.init_app(app)
 
     from app.routes.venda_routes import venda_bp
-    from app.routes.estoque_routes import estoque_bp
 
     app.register_blueprint(venda_bp)
-    app.register_blueprint(estoque_bp)
 
     return app
