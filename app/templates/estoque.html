@@ -2,51 +2,49 @@
 
 {% block content %}
 
-<div class="stock-container">
+<main class="page-container">
 
-    <div class="stock-title">
-        Controle de Estoque
-    </div>
+    <section class="stock-panel">
 
-    <table class="stock-table">
+        <div class="section-header">
+            <h1>Controle de Estoque</h1>
+            <p>Visao simples dos produtos disponiveis para o prototipo visual.</p>
+        </div>
 
-        <tr>
-            <th>Produto</th>
-            <th>Quantidade</th>
-            <th>Estoque Mínimo</th>
-            <th>Status</th>
-        </tr>
+        <table class="stock-table">
 
-        {% for item in estoque %}
+            <thead>
+                <tr>
+                    <th>Produto</th>
+                    <th>Quantidade</th>
+                    <th>Estoque minimo</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
 
-        <tr class="{% if item.quantidade <= item.minimo %}
-                        low-stock
-                   {% else %}
-                        ok-stock
-                   {% endif %}">
+            <tbody>
+                {% for item in estoque %}
 
-            <td>{{ item.nome }}</td>
+                    <tr class="{% if item.quantidade <= item.minimo %}low-stock{% else %}ok-stock{% endif %}">
+                        <td>{{ item.nome }}</td>
+                        <td>{{ item.quantidade }}</td>
+                        <td>{{ item.minimo }}</td>
+                        <td>
+                            {% if item.quantidade <= item.minimo %}
+                                Baixo
+                            {% else %}
+                                OK
+                            {% endif %}
+                        </td>
+                    </tr>
 
-            <td>{{ item.quantidade }}</td>
+                {% endfor %}
+            </tbody>
 
-            <td>{{ item.minimo }}</td>
+        </table>
 
-            <td>
+    </section>
 
-                {% if item.quantidade <= item.minimo %}
-                    Baixo
-                {% else %}
-                    OK
-                {% endif %}
-
-            </td>
-
-        </tr>
-
-        {% endfor %}
-
-    </table>
-
-</div>
+</main>
 
 {% endblock %}

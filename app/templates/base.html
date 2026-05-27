@@ -15,9 +15,16 @@
 
 <body>
 
-<div class="topbar">
-    Atendimento Virtual - Sorveteria
-</div>
+<header class="topbar">
+    <div class="brand">
+        Atendimento Virtual - Sorveteria
+    </div>
+
+    <nav class="nav-links">
+        <a href="{{ url_for('venda.simulacao_venda') }}">Atendimento</a>
+        <a href="{{ url_for('estoque.tela_estoque') }}">Estoque</a>
+    </nav>
+</header>
 
 {% block content %}
 {% endblock %}
