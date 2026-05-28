@@ -2,32 +2,60 @@
 
 {% block content %}
 
-<main class="chat-container">
+<main class="chat-layout">
 
-    <div class="chat-messages" id="chat-messages">
+    <aside class="client-sidebar">
 
-        {% for mensagem in mensagens %}
+        <div class="client-sidebar-title">
+            Clientes
+        </div>
 
-            <div class="message {{ mensagem.tipo }}">
-                {{ mensagem.texto }}
-            </div>
-
+        {% for cliente in clientes %}
+            <a class="client-link {% if cliente.id == cliente_selecionado.id %}active{% endif %}"
+               href="{{ url_for('venda.simulacao_venda', cliente_id=cliente.id) }}">
+                <span>{{ cliente.nome }}</span>
+                <small>{{ cliente.telefone }}</small>
+            </a>
         {% endfor %}
 
-    </div>
+    </aside>
 
-    <form method="POST" class="chat-input">
+    <section class="chat-container">
 
-        <input type="text"
-               name="mensagem"
-               placeholder="Digite sua mensagem..."
-               required>
+        <div class="chat-client-header">
+            Conversa com {{ cliente_selecionado.nome }}
+        </div>
 
-        <button type="submit">
-            Enviar
-        </button>
+        <div class="chat-messages" id="chat-messages">
 
-    </form>
+            {% for mensagem in mensagens %}
+
+                <div class="message {{ mensagem.tipo }}">
+                    {{ mensagem.texto }}
+                </div>
+
+            {% endfor %}
+
+        </div>
+
+        <form method="POST" class="chat-input">
+
+            <input type="hidden"
+                   name="cliente_id"
+                   value="{{ cliente_selecionado.id }}">
+
+            <input type="text"
+                   name="mensagem"
+                   placeholder="Digite sua mensagem..."
+                   required>
+
+            <button type="submit">
+                Enviar
+            </button>
+
+        </form>
+
+    </section>
 
 </main>
 

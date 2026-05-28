@@ -70,6 +70,14 @@ with app.app_context():
         {
             "nome": "Cliente Simulado",
             "telefone": "92999990000"
+        },
+        {
+            "nome": "Cliente Simulado 2",
+            "telefone": "92999990001"
+        },
+        {
+            "nome": "Cliente Simulado 3",
+            "telefone": "92999990002"
         }
     ]
 

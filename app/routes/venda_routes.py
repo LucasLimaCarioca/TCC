@@ -9,6 +9,7 @@ from app.agents.atendimento_agent import (
     AtendimentoAgent
 )
 from app.database import db
+from app.models.cliente import Cliente
 from app.models.historico_conversa import HistoricoConversa
 from app.models.produto import Produto
 from app.models.venda import Venda
@@ -23,10 +24,26 @@ venda_bp = Blueprint(
 agent = AtendimentoAgent()
 
 
-def carregar_historico():
+def buscar_cliente_selecionado():
+    # O atendimento visual trabalha com tres clientes simulados.
+    # O cliente selecionado vem pela URL (?cliente_id=), permitindo trocar conversas.
+    cliente_id = request.values.get("cliente_id", type=int)
+
+    if cliente_id is not None:
+        cliente = db.session.get(Cliente, cliente_id)
+
+        if cliente is not None:
+            return cliente
+
+    return Cliente.query.order_by(Cliente.id).first()
+
+
+def carregar_historico(cliente_nome):
     # Reconstrói as mensagens da tela a partir do banco.
-    # Isso mostra a persistencia conversacional da fase 2.
-    registros = HistoricoConversa.query.order_by(
+    # O filtro por cliente_nome prova que a persistencia fica separada por cliente.
+    registros = HistoricoConversa.query.filter_by(
+        cliente_nome=cliente_nome
+    ).order_by(
         HistoricoConversa.timestamp
     ).all()
 
@@ -50,17 +67,23 @@ def carregar_historico():
     methods=["GET", "POST"]
 )
 def simulacao_venda():
+    clientes = Cliente.query.order_by(Cliente.id).all()
+    cliente_selecionado = buscar_cliente_selecionado()
 
     if request.method == "POST":
 
         # Pega a mensagem enviada pelo formulario do template.
         mensagem = request.form["mensagem"]
+        cliente_nome = cliente_selecionado.nome
 
         # Envia a mensagem ao agente, que decide qual resposta devolver.
-        resposta = agent.responder(mensagem)
+        resposta = agent.responder(
+            mensagem,
+            cliente_nome=cliente_nome
+        )
 
         registro = HistoricoConversa(
-            cliente_nome="Cliente Simulado",
+            cliente_nome=cliente_nome,
             mensagem_usuario=mensagem,
             resposta_agente=resposta
         )
@@ -72,8 +95,43 @@ def simulacao_venda():
     return render_template(
         "simulacao_venda.html",
         titulo="Atendimento",
-        mensagens=carregar_historico()
+        clientes=clientes,
+        cliente_selecionado=cliente_selecionado,
+        mensagens=carregar_historico(cliente_selecionado.nome)
     )
+
+
+@venda_bp.route("/api/atendimento", methods=["POST"])
+def atendimento_api():
+    # Endpoint de teste do agente sem interface gráfica.
+    # Recebe uma mensagem, chama o agente e salva a troca no histórico.
+    dados = request.get_json(silent=True) or request.form
+
+    mensagem = dados.get("mensagem", "").strip()
+    cliente_nome = dados.get("cliente_nome") or "Cliente Simulado"
+
+    if not mensagem:
+        return jsonify({"erro": "Mensagem não informada."}), 400
+
+    resposta = agent.responder(
+        mensagem,
+        cliente_nome=cliente_nome
+    )
+
+    registro = HistoricoConversa(
+        cliente_nome=cliente_nome,
+        mensagem_usuario=mensagem,
+        resposta_agente=resposta
+    )
+
+    db.session.add(registro)
+    db.session.commit()
+
+    return jsonify({
+        "cliente_nome": cliente_nome,
+        "mensagem_usuario": mensagem,
+        "resposta_agente": resposta
+    })
 
 
 @venda_bp.route(
