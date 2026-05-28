@@ -1,30 +1,29 @@
-from flask import Blueprint, render_template
+from flask import Blueprint, jsonify, redirect, url_for
+
+from app.models.produto import Produto
+
 
 estoque_bp = Blueprint("estoque", __name__)
 
+
 @estoque_bp.route("/estoque")
 def tela_estoque():
+    # A tela visual foi unificada em Produtos e Estoque.
+    # Mantemos esta rota para nao quebrar links antigos.
+    return redirect(url_for("produto.tela_produtos"))
 
-    estoque = [
+
+@estoque_bp.route("/api/estoque")
+def consultar_estoque_api():
+    produtos = Produto.query.filter_by(
+        ativo=True
+    ).order_by(Produto.nome).all()
+
+    return jsonify([
         {
-            "nome": "Pizza Calabresa",
-            "quantidade": 20,
-            "minimo": 10
-        },
-        {
-            "nome": "Hambúrguer",
-            "quantidade": 5,
-            "minimo": 10
-        },
-        {
-            "nome": "Refrigerante",
-            "quantidade": 30,
-            "minimo": 15
+            "produto_id": produto.id,
+            "nome": produto.nome,
+            "quantidade_disponivel": produto.quantidade_disponivel
         }
-    ]
-
-    return render_template(
-        "estoque.html",
-        titulo="Controle de Estoque",
-        estoque=estoque
-    )
+        for produto in produtos
+    ])

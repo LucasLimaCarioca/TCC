@@ -1,6 +1,7 @@
 from app.database import db
 from datetime import datetime
 
+
 class Venda(db.Model):
 
     __tablename__ = "vendas"
@@ -10,8 +11,17 @@ class Venda(db.Model):
         primary_key=True
     )
 
-    produto = db.Column(
+    cliente_nome = db.Column(
         db.String(100),
+        nullable=False,
+        default="Cliente Simulado"
+    )
+
+    # Guarda a referencia ao produto vendido.
+    # Assim a venda continua ligada ao cadastro de produtos.
+    produto_id = db.Column(
+        db.Integer,
+        db.ForeignKey("produtos.id"),
         nullable=False
     )
 
@@ -28,4 +38,9 @@ class Venda(db.Model):
     data_venda = db.Column(
         db.DateTime,
         default=datetime.utcnow
+    )
+
+    produto = db.relationship(
+        "Produto",
+        back_populates="vendas"
     )

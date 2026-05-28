@@ -1,0 +1,101 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+<main class="page-container">
+
+    <section class="content-panel">
+
+        <div class="section-header">
+            <h1>Registrar Venda</h1>
+            <p>Cadastro simples conectado ao banco SQLite.</p>
+        </div>
+
+        {% if mensagem %}
+            <div class="alert success">{{ mensagem }}</div>
+        {% endif %}
+
+        {% if erro %}
+            <div class="alert error">{{ erro }}</div>
+        {% endif %}
+
+        <form method="POST" class="sale-form">
+
+            <label>
+                Cliente
+                <input type="text"
+                       name="cliente_nome"
+                       value="Cliente Simulado"
+                       required>
+            </label>
+
+            <label>
+                Produto
+                <select name="produto_id" required>
+                    {% for produto in produtos %}
+                        <option value="{{ produto.id }}">
+                            {{ produto.nome }} - R$ {{ "%.2f"|format(produto.preco) }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </label>
+
+            <label>
+                Quantidade
+                <input type="number"
+                       name="quantidade"
+                       min="1"
+                       value="1"
+                       required>
+            </label>
+
+            <button type="submit" class="primary-button">Registrar</button>
+
+        </form>
+
+    </section>
+
+    <section class="content-panel">
+
+        <div class="section-header">
+            <h1>Ultimas Vendas</h1>
+            <p>Registros salvos na tabela de vendas.</p>
+        </div>
+
+        <table class="data-table">
+
+            <thead>
+                <tr>
+                    <th>Cliente</th>
+                    <th>Produto</th>
+                    <th>Quantidade</th>
+                    <th>Total</th>
+                    <th>Data</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% if vendas %}
+                    {% for venda in vendas %}
+                        <tr>
+                            <td>{{ venda.cliente_nome }}</td>
+                            <td>{{ venda.produto.nome }}</td>
+                            <td>{{ venda.quantidade }}</td>
+                            <td>R$ {{ "%.2f"|format(venda.valor_total) }}</td>
+                            <td>{{ venda.data_venda.strftime("%d/%m/%Y %H:%M") }}</td>
+                        </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="5">Nenhuma venda cadastrada.</td>
+                    </tr>
+                {% endif %}
+            </tbody>
+
+        </table>
+
+    </section>
+
+</main>
+
+{% endblock %}

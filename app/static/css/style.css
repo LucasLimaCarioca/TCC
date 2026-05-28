@@ -11,6 +11,32 @@ body {
     padding: 15px;
     font-size: 20px;
     font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.brand {
+    line-height: 1.2;
+}
+
+.nav-links {
+    display: flex;
+    gap: 10px;
+    font-size: 15px;
+    font-weight: normal;
+}
+
+.nav-links a {
+    color: white;
+    text-decoration: none;
+    padding: 8px 12px;
+    border-radius: 6px;
+}
+
+.nav-links a:hover {
+    background-color: rgba(255, 255, 255, 0.15);
 }
 
 .chat-container {
@@ -36,6 +62,7 @@ body {
     border-radius: 10px;
     max-width: 60%;
     clear: both;
+    white-space: pre-line;
 }
 
 .user {
@@ -69,4 +96,128 @@ body {
     color: white;
     border-radius: 20px;
     cursor: pointer;
+}
+
+.page-container {
+    width: 70%;
+    margin: 20px auto;
+}
+
+.content-panel {
+    background-color: #ffffff;
+    border-radius: 10px;
+    padding: 24px;
+    box-shadow: 0px 0px 10px rgba(0,0,0,0.2);
+    margin-bottom: 20px;
+}
+
+.section-header h1 {
+    margin: 0 0 8px;
+    font-size: 24px;
+    color: #075e54;
+}
+
+.section-header p {
+    margin: 0 0 20px;
+    color: #555;
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.data-table th,
+.data-table td {
+    padding: 12px;
+    border-bottom: 1px solid #ddd;
+    text-align: left;
+}
+
+.data-table th {
+    background-color: #f0f0f0;
+    color: #333;
+}
+
+.sale-form {
+    display: grid;
+    gap: 14px;
+}
+
+.sale-form label {
+    color: #333;
+    display: grid;
+    font-weight: bold;
+    gap: 6px;
+}
+
+.sale-form input,
+.sale-form select {
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 15px;
+    padding: 10px;
+}
+
+.primary-button {
+    background-color: #075e54;
+    border: none;
+    border-radius: 6px;
+    color: white;
+    cursor: pointer;
+    font-size: 15px;
+    padding: 12px 18px;
+    width: fit-content;
+}
+
+.alert {
+    border-radius: 6px;
+    margin-bottom: 16px;
+    padding: 12px;
+}
+
+.alert.success {
+    background-color: #e5f6eb;
+    color: #0b7a3b;
+}
+
+.alert.error {
+    background-color: #fff3f3;
+    color: #b00020;
+}
+
+.ok-stock td:last-child {
+    color: #0b7a3b;
+    font-weight: bold;
+}
+
+.low-stock {
+    background-color: #fff3f3;
+}
+
+.low-stock td:last-child {
+    color: #b00020;
+    font-weight: bold;
+}
+
+@media (max-width: 700px) {
+    .topbar {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .chat-container,
+    .page-container {
+        width: calc(100% - 24px);
+    }
+
+    .data-table {
+        display: block;
+        overflow-x: auto;
+        white-space: nowrap;
+    }
+
+    .message {
+        max-width: 82%;
+    }
 }

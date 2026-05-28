@@ -2,9 +2,9 @@
 
 {% block content %}
 
-<div class="chat-container">
+<main class="chat-container">
 
-    <div class="chat-messages">
+    <div class="chat-messages" id="chat-messages">
 
         {% for mensagem in mensagens %}
 
@@ -29,6 +29,14 @@
 
     </form>
 
-</div>
+</main>
+
+<script>
+    const chatMessages = document.getElementById("chat-messages");
+
+    if (chatMessages) {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+</script>
 
 {% endblock %}
