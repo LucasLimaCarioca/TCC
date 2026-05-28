@@ -1,6 +1,8 @@
 from app.models.produto import Produto
 from app.models.venda import Venda
 from app.database import db
+import re
+
 
 class AtendimentoAgent:
 
@@ -13,7 +15,9 @@ class AtendimentoAgent:
 
         if "sabores" in mensagem:
 
-            produtos = Produto.query.all()
+            produtos = Produto.query.filter_by(
+                ativo=True
+            ).order_by(Produto.nome).all()
 
             lista = "Sabores disponíveis:\n"
 
@@ -22,9 +26,11 @@ class AtendimentoAgent:
 
             return lista
 
-        if "preço" in mensagem:
+        if "preço" in mensagem or "preco" in mensagem:
 
-            produtos = Produto.query.all()
+            produtos = Produto.query.filter_by(
+                ativo=True
+            ).order_by(Produto.nome).all()
 
             resposta = "Tabela de preços:\n"
 
@@ -36,6 +42,33 @@ class AtendimentoAgent:
 
             return resposta
 
+        if "dispon" in mensagem or "tem " in mensagem:
+
+            produtos = Produto.query.filter_by(
+                ativo=True
+            ).order_by(Produto.nome).all()
+
+            resposta = "Disponibilidade atual:\n"
+
+            for produto in produtos:
+                resposta += (
+                    f"{produto.nome}: "
+                    f"{produto.quantidade_disponivel} unidades\n"
+                )
+
+            return resposta
+
+        if "comprar" in mensagem or "quero" in mensagem or "pedido" in mensagem:
+            produto = self._encontrar_produto_na_mensagem(mensagem)
+            quantidade = self._extrair_quantidade(mensagem)
+
+            if produto is not None:
+                return self.registrar_venda(
+                    produto.nome,
+                    quantidade,
+                    cliente_nome="Cliente Simulado"
+                )
+
         return (
             "Desculpe, não entendi sua solicitação."
         )
@@ -43,7 +76,8 @@ class AtendimentoAgent:
     def registrar_venda(
         self,
         produto_nome,
-        quantidade
+        quantidade,
+        cliente_nome="Cliente Simulado"
     ):
 
         produto = Produto.query.filter_by(
@@ -53,13 +87,25 @@ class AtendimentoAgent:
         if not produto:
             return "Produto não encontrado."
 
+        if quantidade <= 0:
+            return "Informe uma quantidade maior que zero."
+
+        if produto.quantidade_disponivel < quantidade:
+            return (
+                f"No momento temos apenas "
+                f"{produto.quantidade_disponivel} unidades de {produto.nome}."
+            )
+
         valor_total = produto.preco * quantidade
 
         venda = Venda(
-            produto=produto.nome,
+            cliente_nome=cliente_nome,
+            produto_id=produto.id,
             quantidade=quantidade,
             valor_total=valor_total
         )
+
+        produto.quantidade_disponivel -= quantidade
 
         db.session.add(venda)
         db.session.commit()
@@ -70,3 +116,25 @@ class AtendimentoAgent:
             f"Quantidade: {quantidade}\n"
             f"Total: R$ {valor_total}"
         )
+
+    def _encontrar_produto_na_mensagem(self, mensagem):
+        produtos = Produto.query.filter_by(
+            ativo=True
+        ).all()
+
+        for produto in produtos:
+            nome = produto.nome.lower()
+            sabor = nome.replace("sorvete de ", "")
+
+            if nome in mensagem or sabor in mensagem:
+                return produto
+
+        return None
+
+    def _extrair_quantidade(self, mensagem):
+        resultado = re.search(r"\d+", mensagem)
+
+        if resultado is None:
+            return 1
+
+        return int(resultado.group())

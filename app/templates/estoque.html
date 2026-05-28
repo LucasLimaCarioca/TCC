@@ -23,22 +23,28 @@
             </thead>
 
             <tbody>
-                {% for item in estoque %}
+                {% if estoque %}
+                    {% for item in estoque %}
 
-                    <tr class="{% if item.quantidade <= item.minimo %}low-stock{% else %}ok-stock{% endif %}">
-                        <td>{{ item.nome }}</td>
-                        <td>{{ item.quantidade }}</td>
-                        <td>{{ item.minimo }}</td>
-                        <td>
-                            {% if item.quantidade <= item.minimo %}
-                                Baixo
-                            {% else %}
-                                OK
-                            {% endif %}
-                        </td>
+                        <tr class="{% if item.quantidade <= item.minimo %}low-stock{% else %}ok-stock{% endif %}">
+                            <td>{{ item.nome }}</td>
+                            <td>{{ item.quantidade }}</td>
+                            <td>{{ item.minimo }}</td>
+                            <td>
+                                {% if item.quantidade <= item.minimo %}
+                                    Baixo
+                                {% else %}
+                                    OK
+                                {% endif %}
+                            </td>
+                        </tr>
+
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="4">Nenhum item cadastrado.</td>
                     </tr>
-
-                {% endfor %}
+                {% endif %}
             </tbody>
 
         </table>

@@ -7,18 +7,39 @@ from flask import (
 from app.agents.atendimento_agent import (
     AtendimentoAgent
 )
+from app.database import db
+from app.models.historico_conversa import HistoricoConversa
 
 venda_bp = Blueprint(
     "venda",
     __name__
 )
 
-# Historico em memoria para a etapa 1.
-# Ele funciona enquanto o servidor esta rodando, mas sera perdido ao reiniciar.
-historico = []
-
 # Instancia unica do agente simplificado que gera as respostas do atendimento.
 agent = AtendimentoAgent()
+
+
+def carregar_historico():
+    # Reconstrói as mensagens da tela a partir do banco.
+    # Isso mostra a persistencia conversacional da fase 2.
+    registros = HistoricoConversa.query.order_by(
+        HistoricoConversa.timestamp
+    ).all()
+
+    mensagens = []
+
+    for registro in registros:
+        mensagens.append({
+            "tipo": "user",
+            "texto": registro.mensagem_usuario
+        })
+        mensagens.append({
+            "tipo": "bot",
+            "texto": registro.resposta_agente
+        })
+
+    return mensagens
+
 
 @venda_bp.route(
     "/",
@@ -26,31 +47,26 @@ agent = AtendimentoAgent()
 )
 def simulacao_venda():
 
-    global historico
-
     if request.method == "POST":
 
         # Pega a mensagem enviada pelo formulario do template.
         mensagem = request.form["mensagem"]
 
-        # Guarda a fala do usuario para exibir novamente na tela.
-        historico.append({
-            "tipo": "user",
-            "texto": mensagem
-        })
-
         # Envia a mensagem ao agente, que decide qual resposta devolver.
         resposta = agent.responder(mensagem)
 
-        # Guarda a resposta do agente no mesmo historico da conversa.
-        historico.append({
-            "tipo": "bot",
-            "texto": resposta
-        })
+        registro = HistoricoConversa(
+            cliente_nome="Cliente Simulado",
+            mensagem_usuario=mensagem,
+            resposta_agente=resposta
+        )
 
-    # Renderiza a interface WhatsApp-like com todo o historico atual.
+        db.session.add(registro)
+        db.session.commit()
+
+    # Renderiza a interface WhatsApp-like com o historico salvo no banco.
     return render_template(
         "simulacao_venda.html",
         titulo="Atendimento",
-        mensagens=historico
+        mensagens=carregar_historico()
     )

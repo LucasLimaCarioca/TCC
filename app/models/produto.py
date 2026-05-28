@@ -1,5 +1,6 @@
 from app.database import db
 
+
 class Produto(db.Model):
 
     __tablename__ = "produtos"
@@ -11,10 +12,36 @@ class Produto(db.Model):
 
     nome = db.Column(
         db.String(100),
-        nullable=False
+        nullable=False,
+        unique=True
     )
 
     preco = db.Column(
         db.Float,
         nullable=False
+    )
+
+    descricao = db.Column(
+        db.String(255),
+        nullable=True
+    )
+
+    # Estoque simplificado da fase 2.
+    # A quantidade fica no proprio produto para manter o prototipo pequeno.
+    quantidade_disponivel = db.Column(
+        db.Integer,
+        nullable=False,
+        default=0
+    )
+
+    ativo = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=True
+    )
+
+    # Um produto pode aparecer em varias vendas.
+    vendas = db.relationship(
+        "Venda",
+        back_populates="produto"
     )
