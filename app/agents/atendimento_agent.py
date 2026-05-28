@@ -1,6 +1,5 @@
 from app.models.produto import Produto
-from app.models.venda import Venda
-from app.database import db
+from app.services.venda_service import registrar_venda
 import re
 
 
@@ -98,17 +97,14 @@ class AtendimentoAgent:
 
         valor_total = produto.preco * quantidade
 
-        venda = Venda(
+        sucesso, mensagem, venda = registrar_venda(
+            produto.id,
+            quantidade,
             cliente_nome=cliente_nome,
-            produto_id=produto.id,
-            quantidade=quantidade,
-            valor_total=valor_total
         )
 
-        produto.quantidade_disponivel -= quantidade
-
-        db.session.add(venda)
-        db.session.commit()
+        if not sucesso:
+            return mensagem
 
         return (
             f"Venda registrada!\n"

@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+<main class="page-container">
+
+    <section class="content-panel">
+
+        <div class="section-header">
+            <h1>Produtos e Estoque</h1>
+            <p>Catalogo e disponibilidade consultados diretamente do banco SQLite.</p>
+        </div>
+
+        <table class="data-table">
+
+            <thead>
+                <tr>
+                    <th>Produto</th>
+                    <th>Descricao</th>
+                    <th>Preco</th>
+                    <th>Disponivel</th>
+                    <th>Produto</th>
+                    <th>Estoque</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for produto in produtos %}
+                    <tr class="{% if produto.quantidade_disponivel <= 5 %}low-stock{% else %}ok-stock{% endif %}">
+                        <td>{{ produto.nome }}</td>
+                        <td>{{ produto.descricao }}</td>
+                        <td>R$ {{ "%.2f"|format(produto.preco) }}</td>
+                        <td>{{ produto.quantidade_disponivel }}</td>
+                        <td>{% if produto.ativo %}Ativo{% else %}Inativo{% endif %}</td>
+                        <td>
+                            {% if produto.quantidade_disponivel <= 5 %}
+                                Baixo
+                            {% else %}
+                                OK
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+
+        </table>
+
+    </section>
+
+</main>
+
+{% endblock %}

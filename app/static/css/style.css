@@ -103,11 +103,12 @@ body {
     margin: 20px auto;
 }
 
-.stock-panel {
+.content-panel {
     background-color: #ffffff;
     border-radius: 10px;
     padding: 24px;
     box-shadow: 0px 0px 10px rgba(0,0,0,0.2);
+    margin-bottom: 20px;
 }
 
 .section-header h1 {
@@ -121,21 +122,68 @@ body {
     color: #555;
 }
 
-.stock-table {
+.data-table {
     width: 100%;
     border-collapse: collapse;
 }
 
-.stock-table th,
-.stock-table td {
+.data-table th,
+.data-table td {
     padding: 12px;
     border-bottom: 1px solid #ddd;
     text-align: left;
 }
 
-.stock-table th {
+.data-table th {
     background-color: #f0f0f0;
     color: #333;
+}
+
+.sale-form {
+    display: grid;
+    gap: 14px;
+}
+
+.sale-form label {
+    color: #333;
+    display: grid;
+    font-weight: bold;
+    gap: 6px;
+}
+
+.sale-form input,
+.sale-form select {
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 15px;
+    padding: 10px;
+}
+
+.primary-button {
+    background-color: #075e54;
+    border: none;
+    border-radius: 6px;
+    color: white;
+    cursor: pointer;
+    font-size: 15px;
+    padding: 12px 18px;
+    width: fit-content;
+}
+
+.alert {
+    border-radius: 6px;
+    margin-bottom: 16px;
+    padding: 12px;
+}
+
+.alert.success {
+    background-color: #e5f6eb;
+    color: #0b7a3b;
+}
+
+.alert.error {
+    background-color: #fff3f3;
+    color: #b00020;
 }
 
 .ok-stock td:last-child {
@@ -161,6 +209,12 @@ body {
     .chat-container,
     .page-container {
         width: calc(100% - 24px);
+    }
+
+    .data-table {
+        display: block;
+        overflow-x: auto;
+        white-space: nowrap;
     }
 
     .message {
