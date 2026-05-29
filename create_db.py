@@ -4,6 +4,7 @@ from app.app import create_app
 from app.database import db
 
 from app.models.cliente import Cliente
+from app.models.contexto_conversa import ContextoConversa
 from app.models.historico_conversa import HistoricoConversa
 from app.models.produto import Produto
 from app.models.venda import Venda
@@ -61,6 +62,11 @@ def migrar_banco_existente():
         "vendas",
         "cliente_nome",
         "VARCHAR(100) NOT NULL DEFAULT 'Cliente Simulado'"
+    )
+    adicionar_coluna_se_precisar(
+        "contextos_conversa",
+        "itens_json",
+        "TEXT"
     )
 
     if tabela_existe("estoque"):
