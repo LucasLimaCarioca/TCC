@@ -8,63 +8,119 @@ from app.models.produto import Produto
 app = create_app()
 
 
+def nome_produto(categoria, sabor):
+    return f"{categoria} - {sabor}"
+
+
 with app.app_context():
 
-    # Dados iniciais da fase 2.
-    # O seed e idempotente: pode rodar de novo sem duplicar esses produtos.
+    # Dados iniciais da fábrica simulada.
+    # A combinação categoria + sabor permite produtos com o mesmo sabor e tamanhos diferentes.
     produtos_iniciais = [
         {
-            "nome": "Sorvete de Chocolate",
-            "preco": 15.0,
-            "descricao": "Sorvete cremoso sabor chocolate.",
-            "quantidade": 20,
-            "ativo": True
+            "categoria": "caixa de 10L",
+            "sabor": "morango",
+            "preco": 101.0,
+            "quantidade": 20
         },
         {
-            "nome": "Sorvete de Morango",
-            "preco": 16.0,
-            "descricao": "Sorvete de morango com sabor frutado.",
-            "quantidade": 7,
-            "ativo": True
+            "categoria": "caixa de 10L",
+            "sabor": "chocolate",
+            "preco": 102.0,
+            "quantidade": 20
         },
         {
-            "nome": "Sorvete de Baunilha",
-            "preco": 14.0,
-            "descricao": "Sorvete classico de baunilha.",
-            "quantidade": 15,
-            "ativo": True
+            "categoria": "caixa de 10L",
+            "sabor": "baunilha",
+            "preco": 100.0,
+            "quantidade": 20
+        },
+        {
+            "categoria": "caixa de 5L",
+            "sabor": "morango",
+            "preco": 66.0,
+            "quantidade": 20
+        },
+        {
+            "categoria": "caixa de 5L",
+            "sabor": "chocolate",
+            "preco": 67.0,
+            "quantidade": 20
+        },
+        {
+            "categoria": "caixa de 5L",
+            "sabor": "baunilha",
+            "preco": 65.0,
+            "quantidade": 20
+        },
+        {
+            "categoria": "caixa de sundae",
+            "sabor": "morango",
+            "preco": 45.0,
+            "quantidade": 20
+        },
+        {
+            "categoria": "caixa de sundae",
+            "sabor": "chocolate",
+            "preco": 48.0,
+            "quantidade": 20
+        },
+        {
+            "categoria": "caixa de picole",
+            "sabor": "caixa A",
+            "preco": 120.0,
+            "quantidade": 20
+        },
+        {
+            "categoria": "caixa de picole",
+            "sabor": "caixa B",
+            "preco": 120.0,
+            "quantidade": 20
+        },
+        {
+            "categoria": "caixa de picole",
+            "sabor": "caixa C",
+            "preco": 120.0,
+            "quantidade": 20
         }
     ]
 
     for item in produtos_iniciais:
+        nome = nome_produto(
+            item["categoria"],
+            item["sabor"]
+        )
 
-        produtos_com_mesmo_nome = Produto.query.filter_by(
-            nome=item["nome"]
-        ).order_by(Produto.id).all()
-
-        produto = produtos_com_mesmo_nome[0] if produtos_com_mesmo_nome else None
-
-        # Remove duplicatas antigas criadas por execucoes repetidas do seed anterior.
-        # Mantem qualquer duplicata que ja tenha venda vinculada.
-        for produto_duplicado in produtos_com_mesmo_nome[1:]:
-            if not produto_duplicado.vendas:
-                db.session.delete(produto_duplicado)
+        produto = Produto.query.filter_by(
+            nome=nome
+        ).first()
 
         if produto is None:
             produto = Produto(
-                nome=item["nome"],
-                preco=item["preco"],
-                descricao=item["descricao"],
-                quantidade_disponivel=item["quantidade"],
-                ativo=item["ativo"]
+                nome=nome
             )
 
             db.session.add(produto)
-        else:
-            produto.preco = item["preco"]
-            produto.descricao = item["descricao"]
-            produto.quantidade_disponivel = item["quantidade"]
-            produto.ativo = item["ativo"]
+
+        produto.categoria = item["categoria"]
+        produto.sabor = item["sabor"]
+        produto.preco = item["preco"]
+        produto.descricao = (
+            f"{item['categoria']} sabor {item['sabor']}."
+        )
+        produto.quantidade_disponivel = item["quantidade"]
+        produto.ativo = True
+
+    nomes_ativos = [
+        nome_produto(item["categoria"], item["sabor"])
+        for item in produtos_iniciais
+    ]
+
+    # Produtos antigos do prototipo ficam inativos para não confundirem o agente.
+    # Mantemos os registros para preservar vendas históricas já associadas a eles.
+    for produto in Produto.query.all():
+        if produto.nome not in nomes_ativos:
+            produto.ativo = False
 
     clientes_iniciais = [
         {

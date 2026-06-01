@@ -34,7 +34,7 @@
                 <select name="produto_id" required>
                     {% for produto in produtos %}
                         <option value="{{ produto.id }}">
-                            {{ produto.nome }} - R$ {{ "%.2f"|format(produto.preco) }}
+                            {{ produto.categoria }} - {{ produto.sabor }} - R$ {{ "%.2f"|format(produto.preco) }}
                         </option>
                     {% endfor %}
                 </select>

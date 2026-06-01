@@ -50,6 +50,16 @@ def migrar_banco_existente():
     )
     adicionar_coluna_se_precisar(
         "produtos",
+        "categoria",
+        "VARCHAR(100) NOT NULL DEFAULT 'sorvete simples'"
+    )
+    adicionar_coluna_se_precisar(
+        "produtos",
+        "sabor",
+        "VARCHAR(100) NOT NULL DEFAULT 'tradicional'"
+    )
+    adicionar_coluna_se_precisar(
+        "produtos",
         "quantidade_disponivel",
         "INTEGER NOT NULL DEFAULT 0"
     )

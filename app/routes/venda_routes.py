@@ -160,7 +160,10 @@ def tela_vendas():
 
     produtos = Produto.query.filter_by(
         ativo=True
-    ).order_by(Produto.nome).all()
+    ).order_by(
+        Produto.categoria,
+        Produto.sabor
+    ).all()
 
     vendas = Venda.query.order_by(
         Venda.data_venda.desc()

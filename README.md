@@ -10,6 +10,7 @@ O projeto simula um sistema de atendimento virtual para uma sorveteria, com foco
 - persistência de histórico por cliente;
 - confirmação de pedidos;
 - suporte a pedidos com múltiplos produtos.
+- produtos com mesma variação/sabor em categorias/tamanhos diferentes.
 
 O protótipo atual utiliza Flask, SQLite e SQLAlchemy. O agente de atendimento ainda não usa SPADE; ele simula o comportamento de um agente por meio de uma classe Python com interpretação simples de intenções.
 
@@ -148,7 +149,7 @@ Também possui pequenas migrações manuais para adaptar bancos antigos do prot�
 
 Popula o banco com dados iniciais:
 
-- três produtos;
+- produtos simulados por categoria e sabor, como caixa de 10L, caixa de 5L, sundae e picolé;
 - três clientes simulados.
 
 O script é idempotente: pode ser executado mais de uma vez sem duplicar os dados principais.
@@ -165,12 +166,15 @@ Campos principais:
 
 - `id`
 - `nome`
+- `categoria`
+- `sabor`
 - `preco`
 - `descricao`
 - `quantidade_disponivel`
 - `ativo`
 
 O estoque simplificado fica dentro da própria tabela de produtos.
+Produtos com o mesmo sabor podem existir em categorias diferentes, por exemplo `caixa de 10L - chocolate` e `caixa de 5L - chocolate`.
 
 ### `Cliente`
 
@@ -268,8 +272,8 @@ oi
 quais sabores?
 preco
 tem chocolate?
-quero 2 chocolate
-quero 2 chocolate e 1 morango
+quero 2 caixas de 10L chocolate
+quero 2 caixas de 10L chocolate e 1 caixa de 5L morango
 sim
 não
 ```
@@ -419,7 +423,7 @@ curl -X POST http://127.0.0.1:5000/api/vendas \
 ```bash
 curl -X POST http://127.0.0.1:5000/api/atendimento \
   -H "Content-Type: application/json" \
-  -d '{"mensagem": "quero 2 chocolate e 1 morango", "cliente_nome": "Cliente Simulado"}'
+  -d '{"mensagem": "quero 2 caixas de 10L chocolate e 1 caixa de 5L morango", "cliente_nome": "Cliente Simulado"}'
 ```
 
 Depois, confirme o pedido:

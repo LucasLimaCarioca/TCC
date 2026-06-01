@@ -10,6 +10,8 @@ def produto_para_dict(produto):
     return {
         "id": produto.id,
         "nome": produto.nome,
+        "categoria": produto.categoria,
+        "sabor": produto.sabor,
         "preco": produto.preco,
         "descricao": produto.descricao,
         "quantidade_disponivel": produto.quantidade_disponivel,
@@ -19,7 +21,12 @@ def produto_para_dict(produto):
 
 @produto_bp.route("/produtos")
 def tela_produtos():
-    produtos = Produto.query.order_by(Produto.nome).all()
+    produtos = Produto.query.filter_by(
+        ativo=True
+    ).order_by(
+        Produto.categoria,
+        Produto.sabor
+    ).all()
 
     return render_template(
         "produtos.html",
@@ -30,7 +37,12 @@ def tela_produtos():
 
 @produto_bp.route("/api/produtos")
 def listar_produtos_api():
-    produtos = Produto.query.order_by(Produto.nome).all()
+    produtos = Produto.query.filter_by(
+        ativo=True
+    ).order_by(
+        Produto.categoria,
+        Produto.sabor
+    ).all()
 
     return jsonify([
         produto_para_dict(produto)

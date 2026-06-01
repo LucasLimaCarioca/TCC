@@ -46,7 +46,7 @@ class AtendimentoAgent:
         if intencao == "confirmacao_sem_contexto":
             return (
                 "Não encontrei nenhum pedido aguardando confirmação.\n"
-                "Para iniciar um pedido, envie algo como: quero 2 sorvetes de chocolate."
+                "Para iniciar um pedido, envie algo como: quero 2 caixas de 10L chocolate."
             )
 
         return self._responder_intencao_desconhecida()
@@ -119,13 +119,13 @@ class AtendimentoAgent:
         if any(palavra in mensagem for palavra in ["sabores", "sabor", "opcoes", "opções"]):
             return "consultar_sabores"
 
-        if any(palavra in mensagem for palavra in ["preço", "preco", "valor", "quanto custa"]):
+        if any(palavra in mensagem for palavra in ["preço", "preco", "valor", "quanto custa", "tabela"]):
             return "consultar_precos"
 
         if any(palavra in mensagem for palavra in ["dispon", "tem ", "estoque"]):
             return "consultar_disponibilidade"
 
-        if any(palavra in mensagem for palavra in ["comprar", "quero", "pedido", "levar"]):
+        if any(palavra in mensagem for palavra in ["comprar", "quero", "pedido", "levar", "produto"]):
             return "registrar_venda"
 
         if self._mensagem_afirmativa(mensagem):
@@ -137,7 +137,10 @@ class AtendimentoAgent:
         # Consulta centralizada para manter as respostas sempre baseadas no banco.
         return Produto.query.filter_by(
             ativo=True
-        ).order_by(Produto.nome).all()
+        ).order_by(
+            Produto.categoria,
+            Produto.sabor
+        ).all()
 
     def _responder_saudacao(self):
         return (
@@ -151,10 +154,15 @@ class AtendimentoAgent:
         if not produtos:
             return "No momento não há sabores cadastrados."
 
-        resposta = "Sabores disponíveis:\n"
+        resposta = "Produtos disponíveis por categoria:\n"
+        categoria_atual = None
 
         for produto in produtos:
-            resposta += f"- {produto.nome}\n"
+            if produto.categoria != categoria_atual:
+                categoria_atual = produto.categoria
+                resposta += f"\n{categoria_atual}:\n"
+
+            resposta += f"- {produto.sabor}\n"
 
         return resposta
 
@@ -165,10 +173,15 @@ class AtendimentoAgent:
             return "No momento não há produtos cadastrados."
 
         resposta = "Tabela de preços:\n"
+        categoria_atual = None
 
         for produto in produtos:
+            if produto.categoria != categoria_atual:
+                categoria_atual = produto.categoria
+                resposta += f"\n{categoria_atual}:\n"
+
             resposta += (
-                f"{produto.nome}: "
+                f"- {produto.sabor}: "
                 f"R$ {produto.preco:.2f}\n"
             )
 
@@ -184,7 +197,7 @@ class AtendimentoAgent:
 
         for produto in produtos:
             resposta += (
-                f"{produto.nome}: "
+                f"{produto.categoria} - {produto.sabor}: "
                 f"{produto.quantidade_disponivel} unidades\n"
             )
 
@@ -194,9 +207,14 @@ class AtendimentoAgent:
         itens = self._extrair_itens_pedido(mensagem)
 
         if not itens:
+            resposta_ambiguidade = self._responder_sabor_sem_categoria(mensagem)
+
+            if resposta_ambiguidade is not None:
+                return resposta_ambiguidade
+
             return (
                 "Não consegui identificar os produtos do pedido.\n"
-                "Exemplo: quero 2 sorvetes de chocolate e 1 de morango."
+                "Exemplo: quero 2 caixas de 10L chocolate e 1 caixa de sundae morango."
             )
 
         erro_estoque = self._validar_estoque_itens(itens)
@@ -222,9 +240,10 @@ class AtendimentoAgent:
 
         for produto in produtos:
             nome = produto.nome.lower()
-            sabor = nome.replace("sorvete de ", "")
+            categoria = produto.categoria.lower()
+            sabor = produto.sabor.lower()
 
-            if nome in mensagem or sabor in mensagem:
+            if nome in mensagem or (categoria in mensagem and sabor in mensagem):
                 return produto
 
         return None
@@ -339,11 +358,10 @@ class AtendimentoAgent:
         itens = []
 
         for produto in self._buscar_produtos_ativos():
-            nome = produto.nome.lower()
-            sabor = nome.replace("sorvete de ", "")
+            termos_produto = self._termos_produto(produto)
             posicao = self._posicao_produto_na_mensagem(
                 mensagem,
-                [nome, sabor]
+                termos_produto
             )
 
             if posicao is None:
@@ -392,7 +410,7 @@ class AtendimentoAgent:
 
             if produto.quantidade_disponivel < quantidade:
                 return (
-                    f"No momento temos apenas "
+                f"No momento temos apenas "
                     f"{produto.quantidade_disponivel} unidades de {produto.nome}.\n"
                     "Você pode pedir uma quantidade menor ou escolher outro sabor."
                 )
@@ -453,3 +471,57 @@ class AtendimentoAgent:
             })
 
         return itens
+
+    def _termos_produto(self, produto):
+        # Um sabor pode existir em várias categorias.
+        # Por isso o agente só casa pedidos com categoria + sabor, ou com nome completo.
+        categoria = produto.categoria.lower()
+        sabor = produto.sabor.lower()
+        nome = produto.nome.lower()
+        termos = [
+            nome,
+            f"{categoria} {sabor}",
+            f"{categoria} de {sabor}"
+        ]
+
+        for alias in self._aliases_categoria(categoria):
+            termos.append(f"{alias} {sabor}")
+            termos.append(f"{alias} de {sabor}")
+
+        return termos
+
+    def _aliases_categoria(self, categoria):
+        aliases = {
+            "caixa de 10l": ["10l", "10 litros", "caixa 10l", "caixa de 10 litros", "caixas de 10l"],
+            "caixa de 5l": ["5l", "5 litros", "caixa 5l", "caixa de 5 litros", "caixas de 5l"],
+            "caixa de sundae": ["sundae", "caixa sundae", "caixas de sundae"],
+            "caixa de picole": ["picole", "picolé", "caixa picole", "caixa picolé", "caixas de picole"]
+        }
+
+        return aliases.get(categoria, [])
+
+    def _responder_sabor_sem_categoria(self, mensagem):
+        produtos_por_sabor = {}
+
+        for produto in self._buscar_produtos_ativos():
+            sabor = produto.sabor.lower()
+
+            if sabor in mensagem:
+                produtos_por_sabor.setdefault(sabor, []).append(produto)
+
+        for sabor, produtos in produtos_por_sabor.items():
+            if len(produtos) <= 1:
+                continue
+
+            categorias = ", ".join(
+                produto.categoria
+                for produto in produtos
+            )
+
+            return (
+                f"Encontrei o sabor {sabor} em mais de uma categoria: {categorias}.\n"
+                "Informe também a categoria/tamanho.\n"
+                f"Exemplo: quero 2 caixas de 10L {sabor}."
+            )
+
+        return None

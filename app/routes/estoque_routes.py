@@ -23,6 +23,8 @@ def consultar_estoque_api():
         {
             "produto_id": produto.id,
             "nome": produto.nome,
+            "categoria": produto.categoria,
+            "sabor": produto.sabor,
             "quantidade_disponivel": produto.quantidade_disponivel
         }
         for produto in produtos

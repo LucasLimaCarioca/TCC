@@ -16,6 +16,22 @@ class Produto(db.Model):
         unique=True
     )
 
+    # Categoria representa o formato comercial vendido pela fábrica.
+    # Exemplos: caixa de 10L, caixa de 5L, caixa de sundae.
+    categoria = db.Column(
+        db.String(100),
+        nullable=False,
+        default="sorvete simples"
+    )
+
+    # Sabor/variação do produto dentro da categoria.
+    # Exemplos: chocolate, morango, caixa A.
+    sabor = db.Column(
+        db.String(100),
+        nullable=False,
+        default="tradicional"
+    )
+
     preco = db.Column(
         db.Float,
         nullable=False
