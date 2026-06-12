@@ -4,5 +4,3 @@ spade
 pandas
 scikit-learn
 streamlit
-openai
-python-dotenv
