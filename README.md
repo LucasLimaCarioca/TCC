@@ -16,7 +16,6 @@ O protótipo atual utiliza Flask, SQLite e SQLAlchemy. O agente de atendimento a
 
 ## Arquitetura
 
-A arquitetura atual é simples e adequada para o estágio do TCC I:
 
 ```text
 Interface Flask
@@ -65,7 +64,6 @@ Histórico da conversa é salvo por cliente
 
 ### Dependências previstas para etapas futuras do TCC
 
-O arquivo `requirements.txt` também inclui bibliotecas que fazem parte do escopo maior do TCC, mas não são centrais no protótipo atual:
 
 - SPADE: framework para sistemas multiagentes, previsto para evolução futura.
 - Pandas: manipulação de dados.
