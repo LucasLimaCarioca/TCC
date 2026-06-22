@@ -15,6 +15,8 @@ from app.models.produto import Produto
 from app.models.venda import Venda
 from app.services.venda_service import registrar_venda
 
+# Blueprint agrupa as rotas relacionadas ao atendimento e às vendas.
+# Ele é registrado em app/app.py dentro da função create_app().
 venda_bp = Blueprint(
     "venda",
     __name__
@@ -27,14 +29,17 @@ agent = AtendimentoAgent()
 def buscar_cliente_selecionado():
     # O atendimento visual trabalha com tres clientes simulados.
     # O cliente selecionado vem pela URL (?cliente_id=), permitindo trocar conversas.
+    # request.values lê tanto query string (GET) quanto formulário (POST).
     cliente_id = request.values.get("cliente_id", type=int)
 
     if cliente_id is not None:
+        # db.session.get busca pela chave primaria do modelo.
         cliente = db.session.get(Cliente, cliente_id)
 
         if cliente is not None:
             return cliente
 
+    # Se nenhum cliente válido for informado, usa o primeiro cliente cadastrado.
     return Cliente.query.order_by(Cliente.id).first()
 
 
@@ -67,21 +72,24 @@ def carregar_historico(cliente_nome):
     methods=["GET", "POST"]
 )
 def simulacao_venda():
+    # Lista todos os clientes para montar o menu lateral da tela de chat.
     clientes = Cliente.query.order_by(Cliente.id).all()
     cliente_selecionado = buscar_cliente_selecionado()
 
     if request.method == "POST":
 
-        # Pega a mensagem enviada pelo formulario do template.
+        # Pega a mensagem enviada pelo formulario do template
         mensagem = request.form["mensagem"]
         cliente_nome = cliente_selecionado.nome
 
-        # Envia a mensagem ao agente, que decide qual resposta devolver.
+        # Envia a mensagem ao agente
         resposta = agent.responder(
             mensagem,
             cliente_nome=cliente_nome
         )
 
+        # Após o agente responder, salva a troca completa no histórico
+        # Permite recarregar a conversa depois e manter histórico por cliente
         registro = HistoricoConversa(
             cliente_nome=cliente_nome,
             mensagem_usuario=mensagem,
@@ -91,7 +99,7 @@ def simulacao_venda():
         db.session.add(registro)
         db.session.commit()
 
-    # Renderiza a interface WhatsApp-like com o historico salvo no banco.
+    # Renderiza a interface simulada do whatsapp com o historico salvo no banco
     return render_template(
         "simulacao_venda.html",
         titulo="Atendimento",
@@ -105,11 +113,13 @@ def simulacao_venda():
 def atendimento_api():
     # Endpoint de teste do agente sem interface gráfica.
     # Recebe uma mensagem, chama o agente e salva a troca no histórico.
+    # Aceita JSON e também form data, facilitando testes com curl/Postman/formulário.
     dados = request.get_json(silent=True) or request.form
 
     mensagem = dados.get("mensagem", "").strip()
     cliente_nome = dados.get("cliente_nome") or "Cliente Simulado"
 
+    # Retorna erro 400 quando a requisição não envia texto para o agente.
     if not mensagem:
         return jsonify({"erro": "Mensagem não informada."}), 400
 
@@ -139,14 +149,19 @@ def atendimento_api():
     methods=["GET", "POST"]
 )
 def tela_vendas():
+    # mensagem e erro são enviados ao template para feedback visual após o POST.
     mensagem = None
     erro = None
 
     if request.method == "POST":
+        # O formulário envia produto_id, quantidade e nome do cliente.
+        # A conversão para int é necessária porque dados de formulário chegam como texto.
         produto_id = int(request.form["produto_id"])
         quantidade = int(request.form["quantidade"])
         cliente_nome = request.form.get("cliente_nome") or "Cliente Simulado"
 
+        # A regra de negócio fica no service, não na rota.
+        # A rota apenas recebe os dados e escolhe o que renderizar depois.
         sucesso, mensagem_retorno, venda = registrar_venda(
             produto_id,
             quantidade,
@@ -158,6 +173,7 @@ def tela_vendas():
         else:
             erro = mensagem_retorno
 
+    # Produtos ativos alimentam o select da tela de registro de vendas.
     produtos = Produto.query.filter_by(
         ativo=True
     ).order_by(
@@ -165,6 +181,7 @@ def tela_vendas():
         Produto.sabor
     ).all()
 
+    # Mostra as vendas mais recentes no final da tela.
     vendas = Venda.query.order_by(
         Venda.data_venda.desc()
     ).limit(10).all()
@@ -181,10 +198,12 @@ def tela_vendas():
 
 @venda_bp.route("/api/vendas", methods=["GET"])
 def listar_vendas_api():
+    # Endpoint para inspecionar as vendas sem abrir a interface gráfica.
     vendas = Venda.query.order_by(
         Venda.data_venda.desc()
     ).all()
 
+    # Transforma objetos SQLAlchemy em dicionários serializáveis em JSON.
     return jsonify([
         {
             "id": venda.id,
@@ -201,21 +220,25 @@ def listar_vendas_api():
 
 @venda_bp.route("/api/vendas", methods=["POST"])
 def cadastrar_venda_api():
+    # Permite cadastrar venda tanto via JSON quanto via form data.
     dados = request.get_json(silent=True) or request.form
 
     produto_id = int(dados["produto_id"])
     quantidade = int(dados["quantidade"])
     cliente_nome = dados.get("cliente_nome") or "Cliente Simulado"
 
+    # Reutiliza a mesma regra da tela /vendas.
     sucesso, mensagem, venda = registrar_venda(
         produto_id,
         quantidade,
         cliente_nome=cliente_nome
     )
 
+    # Erros de validação, como estoque insuficiente, retornam HTTP 400.
     if not sucesso:
         return jsonify({"erro": mensagem}), 400
 
+    # Quando a venda é criada, retorna HTTP 201 com os dados do registro.
     return jsonify({
         "mensagem": mensagem,
         "venda": {
