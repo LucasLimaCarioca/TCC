@@ -217,3 +217,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+tcc.zip
+*.csv
+/tcc_codex_docs/*
