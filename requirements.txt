@@ -1,6 +1,7 @@
-Flask
-Flask-SQLAlchemy
-spade
-pandas
-scikit-learn
-streamlit
+Flask==3.1.3
+Flask-SQLAlchemy==3.1.1
+SQLAlchemy==2.0.49
+spade==4.1.4
+pandas==2.3.3
+scikit-learn==1.7.2
+streamlit==1.64.0

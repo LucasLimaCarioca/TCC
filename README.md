@@ -9,7 +9,7 @@ O projeto simula um sistema de atendimento virtual para uma sorveteria, com foco
 - registro de vendas;
 - persistência de histórico por cliente;
 - confirmação de pedidos;
-- suporte a pedidos com múltiplos produtos.
+- suporte a pedidos com múltiplos produtos;
 - produtos com mesma variação/sabor em categorias/tamanhos diferentes.
 
 O protótipo atual utiliza Flask, SQLite e SQLAlchemy. O agente de atendimento ainda não usa SPADE; ele simula o comportamento de um agente por meio de uma classe Python com interpretação simples de intenções.
@@ -55,7 +55,7 @@ Histórico da conversa é salvo por cliente
 
 ### Principais no protótipo atual
 
-- Python: linguagem principal.
+- Python 3.12: ambiente usado na validação do baseline (3.12.3).
 - Flask: framework web usado para rotas, telas e APIs.
 - Flask-SQLAlchemy: integração entre Flask e SQLAlchemy.
 - SQLite: banco de dados local do protótipo.
@@ -65,11 +65,14 @@ Histórico da conversa é salvo por cliente
 ### Dependências previstas para etapas futuras do TCC
 
 
-- SPADE: framework para sistemas multiagentes, previsto para evolução futura.
+- SPADE 4.1.4: dependência instalada, ainda sem agentes ou servidor XMPP em execução.
 - Pandas: manipulação de dados.
 - Scikit-learn: modelos de previsão/demanda em fases futuras.
-- Streamlit: alternativa de interface ou prototipação.
-- OpenAI e python-dotenv: possíveis integrações futuras com APIs e variáveis de ambiente.
+- Streamlit: dependência herdada, sem uso no código atual; a interface continua em Flask.
+
+As dependências diretas têm versões fixadas em `requirements.txt`, incluindo SQLAlchemy,
+usado diretamente pelo projeto. `requirements-dev.txt` acrescenta pytest. A Fase 0
+não implementa previsão, novos agentes, integração de LLM ou receitas/BOM.
 
 ## Estrutura do projeto
 
@@ -106,6 +109,16 @@ TCC/
 ├── seed.py
 ├── run.py
 ├── requirements.txt
+├── requirements-dev.txt
+├── pytest.ini
+├── tests/
+│   ├── conftest.py
+│   ├── test_regressao_tcc_i.py
+│   ├── test_venda_service.py
+│   ├── test_atendimento_contexto.py
+│   └── test_http.py
+├── docs/
+│   └── BASELINE_FASE_0.md
 └── README.md
 ```
 
@@ -121,12 +134,16 @@ Arquivo de entrada da aplicação. Cria o app Flask e inicia o servidor de desen
 
 ### `app/app.py`
 
-Define a função `create_app()`, responsável por:
+Define a função `create_app(test_config=None)`, responsável por:
 
 - criar a aplicação Flask;
 - configurar o banco SQLite;
 - inicializar o SQLAlchemy;
 - registrar os blueprints de atendimento, produtos e estoque.
+
+Sem argumentos, mantém `sqlite:///sorvetes.db`, em `instance/`. Nos testes,
+a configuração é substituída antes de inicializar o SQLAlchemy para usar
+um arquivo SQLite temporário exclusivo de cada teste.
 
 ### `app/database.py`
 
@@ -147,10 +164,13 @@ Também possui pequenas migrações manuais para adaptar bancos antigos do prot�
 
 Popula o banco com dados iniciais:
 
-- produtos simulados por categoria e sabor, como caixa de 10L, caixa de 5L, sundae e picolé;
-- três clientes simulados.
+- 11 produtos simulados por categoria e sabor, como caixa de 10L, caixa de 5L, sundae e picolé;
+- cinco clientes simulados.
 
-O script é idempotente: pode ser executado mais de uma vez sem duplicar os dados principais.
+O script não duplica os produtos e clientes iniciais, mas cada execução redefine
+os preços e os saldos dos 11 produtos para os valores iniciais (20 unidades por
+produto), reativa esses produtos e desativa os demais. Execute-o para preparar
+a demonstração; ele não preserva os saldos alterados por vendas anteriores.
 
 ## Modelos do banco
 
@@ -321,7 +341,7 @@ app/templates/simulacao_venda.html
 Tela principal do atendimento. Possui:
 
 - chat estilo WhatsApp;
-- menu lateral com três clientes simulados;
+- menu lateral com os clientes cadastrados (cinco no seed);
 - histórico separado por cliente;
 - envio de mensagens ao agente.
 
@@ -449,7 +469,7 @@ source .venv/bin/activate
 ### 3. Instalar dependências
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
 ### 4. Criar ou atualizar banco
@@ -464,6 +484,9 @@ python create_db.py
 python seed.py
 ```
 
+Em um banco já utilizado, esse comando redefine os saldos dos produtos iniciais.
+Não é necessário repeti-lo a cada inicialização.
+
 ### 6. Rodar aplicação
 
 ```bash
@@ -476,12 +499,42 @@ A aplicação ficará disponível em:
 http://127.0.0.1:5000
 ```
 
+## Testes automatizados — Fase 0
+
+Com o ambiente virtual ativado:
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m pytest
+```
+
+Não é necessário executar `create_db.py` ou `seed.py` para testar. Cada teste
+cria seu próprio banco em uma pasta temporária do pytest, sem usar
+`instance/sorvetes.db`. As fixtures preparam os 11 produtos e cinco clientes
+do baseline, sem importar os scripts de inicialização.
+
+Os oito casos do TCC I estão em `tests/test_regressao_tcc_i.py`: catálogo,
+disponibilidade específica, pedido múltiplo confirmado, categoria compartilhada,
+produto sem estoque, quantidade acima do saldo, preço específico e preços múltiplos.
+Os demais testes cobrem o serviço de vendas, contexto/histórico por cliente e
+as telas/APIs existentes.
+
+Para executar somente os oito casos ou exportar evidências:
+
+```bash
+python -m pytest tests/test_regressao_tcc_i.py -v
+python -m pytest --junitxml=/tmp/tcc-fase-0.xml
+```
+
+Consulte [o relatório da Fase 0](docs/BASELINE_FASE_0.md) para os resultados,
+o escopo validado e as decisões pendentes antes da Fase 1.
+
 ## Estado atual do protótipo
 
 Funcionalidades já implementadas:
 
 - interface de atendimento;
-- três clientes simulados;
+- cinco clientes simulados no seed;
 - histórico separado por cliente;
 - persistência de mensagens;
 - consulta de sabores;
