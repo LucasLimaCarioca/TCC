@@ -221,3 +221,34 @@ __marimo__/
 tcc.zip
 *.csv
 /tcc_codex_docs/*
+
+# Dados restritos: original, processados, relatorios e copias locais.
+# Manter todas as saidas do pipeline dentro de data/, mesmo desidentificadas.
+/data/
+/artifacts/
+/reports/
+/exports/
+/secrets/
+*.CSV
+*.csv.*
+*.CSV.*
+*.tsv
+*.parquet
+*.feather
+*.arrow
+*.jsonl
+*.ndjson
+*.xlsx
+*.xls
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.pkl
+*.pickle
+*.joblib
+*.key
+.env.*
+!.env.example
