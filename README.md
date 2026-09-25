@@ -529,6 +529,32 @@ python -m pytest --junitxml=/tmp/tcc-fase-0.xml
 Consulte [o relatório da Fase 0](docs/BASELINE_FASE_0.md) para os resultados,
 o escopo validado e as decisões pendentes antes da Fase 1.
 
+## Proteção dos dados históricos
+
+O original `data/pedidos.csv` é restrito e permanece apenas na máquina local.
+Todos os derivados, mesmo desidentificados, devem ficar em `data/processed/`,
+`data/reports/` ou `data/artifacts/`. O Git ignora toda a pasta `data/`, sem
+exceção por formato, além dos formatos comuns de dados fora dela. Chaves HMAC
+ficam fora do repositório. Documentação e testes usam somente dados fictícios.
+
+Ative a proteção de commits após clonar o projeto:
+
+```bash
+chmod +x .githooks/pre-commit
+git config --local core.hooksPath .githooks
+python3 scripts/check_private_data.py
+```
+
+O hook verifica o índice Git e bloqueia caminhos restritos, inclusive se alguém
+forçar a inclusão com `git add -f`. Ele não lê nem imprime os registros. A
+configuração do hook é local e precisa ser ativada em cada clone; não desative
+essa proteção. A verificação é por caminhos e formatos, não uma detecção de
+informações pessoais copiadas para arquivos de código ou documentação.
+
+A fase de preparação e desidentificação foi acrescentada ao plano antes da
+Fase 1. A proteção do repositório está configurada; o pipeline de transformação
+ainda será implementado nessa fase, antes de consumir os dados reais na previsão.
+
 ## Estado atual do protótipo
 
 Funcionalidades já implementadas:
