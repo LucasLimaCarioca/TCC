@@ -1,6 +1,6 @@
 # Dados históricos restritos
 
-- O CSV original é `data/pedidos.csv`. Nunca versionar, publicar ou enviar dados
+- O CSV original é `data/pedido.csv`. Nunca versionar, publicar ou enviar dados
   históricos reais para serviços externos, inclusive após desidentificação.
 - Toda saída derivada deve permanecer em `data/`: usar `data/processed/` para
   datasets, `data/reports/` para relatórios e `data/artifacts/` para artefatos.

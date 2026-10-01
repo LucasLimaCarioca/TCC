@@ -531,7 +531,7 @@ o escopo validado e as decisões pendentes antes da Fase 1.
 
 ## Proteção dos dados históricos
 
-O original `data/pedidos.csv` é restrito e permanece apenas na máquina local.
+O original `data/pedido.csv` é restrito e permanece apenas na máquina local.
 Todos os derivados, mesmo desidentificados, devem ficar em `data/processed/`,
 `data/reports/` ou `data/artifacts/`. O Git ignora toda a pasta `data/`, sem
 exceção por formato, além dos formatos comuns de dados fora dela. Chaves HMAC
@@ -551,9 +551,21 @@ configuração do hook é local e precisa ser ativada em cada clone; não desati
 essa proteção. A verificação é por caminhos e formatos, não uma detecção de
 informações pessoais copiadas para arquivos de código ou documentação.
 
-A fase de preparação e desidentificação foi acrescentada ao plano antes da
-Fase 1. A proteção do repositório está configurada; o pipeline de transformação
-ainda será implementado nessa fase, antes de consumir os dados reais na previsão.
+A fase de preparação e desidentificação está implementada antes da Fase 1.
+O CSV de entrada é `data/pedido.csv`; a descrição local dos campos está em
+`data/descricao_campos.txt`. Para preparar a demanda diária, preservando o dia
+de emissão conforme acordado:
+
+```bash
+python -m scripts.prepare_history --input data/pedido.csv --date-policy dia_fonte
+```
+
+O comando gera um dataset de demanda com `codigo_grupo` e `categoria`, além
+de data, código do produto, quantidade e número de pedidos, e um relatório local
+de qualidade em pastas ignoradas, sem modificar o original. Não grava clientes, vendedores,
+nomes pessoais ou identificadores de pedidos na saída. Dados inválidos bloqueiam
+a liberação do dataset e exigem revisão pelo relatório local.
+Veja o [guia de preparação dos dados](docs/PREPARACAO_DADOS.md).
 
 ## Estado atual do protótipo
 
