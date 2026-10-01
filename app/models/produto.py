@@ -4,6 +4,9 @@ from app.database import db
 class Produto(db.Model):
 
     __tablename__ = "produtos"
+    __table_args__ = (
+        db.CheckConstraint("quantidade_disponivel >= 0", name="ck_produto_saldo"),
+    )
 
     id = db.Column(
         db.Integer,
@@ -14,6 +17,14 @@ class Produto(db.Model):
         db.String(100),
         nullable=False,
         unique=True
+    )
+
+    # NULL mantém produtos legados sem inventar uma associação ao histórico.
+    codigo_externo = db.Column(db.String(64), unique=True, index=True)
+    estoque_minimo = db.Column(
+        db.Integer,
+        db.CheckConstraint("estoque_minimo >= 0", name="ck_produto_minimo"),
+        nullable=False, default=0, server_default="0",
     )
 
     # Categoria representa o formato comercial vendido pela fábrica.
