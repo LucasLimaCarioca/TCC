@@ -5,3 +5,4 @@ spade==4.1.4
 pandas==2.3.3
 scikit-learn==1.7.2
 streamlit==1.64.0
+alembic==1.18.4

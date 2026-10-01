@@ -151,14 +151,18 @@ Cria o objeto global `db`, usado pelos modelos SQLAlchemy.
 
 ### `create_db.py`
 
-Cria as tabelas no SQLite usando `db.create_all()`.
+Cria ou atualiza o SQLite usando as revisões Alembic em `migrations/`.
+Antes de uma atualização de banco existente, salva uma cópia privada em
+`data/artifacts/backups/`. A atualização é transacional e preserva vendas,
+conversas, clientes e produtos. Também pode ser executada por:
 
-Também possui pequenas migrações manuais para adaptar bancos antigos do protótipo, por exemplo:
+```bash
+python -m flask --app run.py db upgrade
+python -m flask --app run.py db current
+```
 
-- adicionar colunas em `produtos`;
-- adicionar `cliente_nome` em `vendas`;
-- adicionar `itens_json` em `contextos_conversa`;
-- migrar/remover a tabela antiga de estoque, caso exista.
+Use esse comando antes de iniciar a aplicação após atualizar o código. Não é
+necessário executar o seed novamente. Detalhes: [Fase 1](docs/FASE_1_MODELOS_MIGRACOES.md).
 
 ### `seed.py`
 
@@ -189,6 +193,8 @@ Campos principais:
 - `preco`
 - `descricao`
 - `quantidade_disponivel`
+- `estoque_minimo`
+- `codigo_externo` (opcional e único, preserva zeros à esquerda)
 - `ativo`
 
 O estoque simplificado fica dentro da própria tabela de produtos.
@@ -255,6 +261,19 @@ Campos:
 - `data_venda`
 
 Cada item vendido é salvo como um registro de venda. Um pedido com dois produtos gera dois registros.
+
+### Modelos adicionados na Fase 1
+
+- `MateriaPrima`: cadastro, unidade, saldo decimal e estoque mínimo.
+- `MovimentacaoEstoque`: item, tipo, quantidade, saldos anterior/posterior e motivo.
+- `AlertaEstoque`: item, tipo de alerta, nível, mensagem e resolução.
+- `VendaHistorica`: demanda diária preparada, grupo/categoria e hashes de origem,
+  sem dados pessoais ou identificadores individuais de pedidos.
+- `PrevisaoDemanda`: produto, período, granularidade, quantidade, modelo e métricas.
+- `LogMensagemAgente`: estrutura de mensagens e correlação para fases futuras.
+
+Nesta fase foram criadas estruturas e restrições de integridade. As rotinas de
+movimentação, alertas, importação e previsão serão implementadas nas fases seguintes.
 
 ## Agente de atendimento
 
@@ -499,7 +518,7 @@ A aplicação ficará disponível em:
 http://127.0.0.1:5000
 ```
 
-## Testes automatizados — Fase 0
+## Testes automatizados
 
 Com o ambiente virtual ativado:
 
@@ -517,7 +536,8 @@ Os oito casos do TCC I estão em `tests/test_regressao_tcc_i.py`: catálogo,
 disponibilidade específica, pedido múltiplo confirmado, categoria compartilhada,
 produto sem estoque, quantidade acima do saldo, preço específico e preços múltiplos.
 Os demais testes cobrem o serviço de vendas, contexto/histórico por cliente e
-as telas/APIs existentes.
+as telas/APIs existentes. A suíte também cobre a preparação privada dos dados,
+os modelos da Fase 1 e migrações em banco vazio e legado, incluindo rollback.
 
 Para executar somente os oito casos ou exportar evidências:
 

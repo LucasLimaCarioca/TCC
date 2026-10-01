@@ -19,6 +19,11 @@ def create_app(test_config=None):
     # Conecta o objeto db ao app criado acima.
     db.init_app(app)
 
+    # Registra todos os modelos antes de criar tabelas ou usar migrações.
+    from app import models
+    from app.migrations import database_commands
+    app.cli.add_command(database_commands)
+
     # Blueprints separam as rotas por assunto. Assim o app principal fica organizado.
     from app.routes.venda_routes import venda_bp
     from app.routes.estoque_routes import estoque_bp
