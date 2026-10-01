@@ -6,6 +6,7 @@ import runpy
 import sqlite3
 import subprocess
 
+from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
@@ -14,7 +15,7 @@ import sqlalchemy as sa
 
 from app.app import create_app
 from app.database import db
-from app.migrations import MigrationError, upgrade_database
+from app.migrations import MigrationError, _config, upgrade_database
 from app.models.produto import Produto
 from app.services.venda_service import registrar_venda
 
@@ -62,7 +63,7 @@ def test_banco_vazio_cria_schema_equivalente_aos_modelos(migration_project):
     root, _, app = migration_project
     with app.app_context():
         result = upgrade_database(project_root=root)
-        assert result == {"updated": True, "revision": "0002_modelos_tccii", "backup": None}
+        assert result == {"updated": True, "revision": "0004_produto_saldo", "backup": None}
         with db.engine.connect() as connection:
             assert compare_metadata(MigrationContext.configure(connection), db.metadata) == []
             assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
@@ -158,8 +159,99 @@ def test_cli_upgrade_current_e_create_db_compativeis(migration_project, monkeypa
     assert result.exit_code == 0, result.output
     result = app.test_cli_runner().invoke(args=["db", "current"])
     assert result.exit_code == 0
-    assert "0002_modelos_tccii" in result.output
+    assert "0004_produto_saldo" in result.output
     monkeypatch.setattr("app.app.create_app", lambda: app)
     with pytest.raises(SystemExit) as result:
         runpy.run_path(str(ROOT / "create_db.py"), run_name="__main__")
     assert result.value.code == 0
+
+
+def create_phase_one(app, quantity):
+    create_legacy(app)
+    with app.app_context(), db.engine.begin() as connection:
+        command.upgrade(_config(connection), "0002_modelos_tccii")
+        connection.exec_driver_sql(
+            "INSERT INTO movimentacoes_estoque "
+            "(id, tipo_item, produto_id, tipo_movimentacao, quantidade, saldo_anterior, saldo_posterior, motivo, criado_em) "
+            "VALUES (12, 'produto', 7, 'entrada', ?, 0, 1.25, 'Teste ficticio', '2025-01-01 00:00:00')",
+            (quantity,),
+        )
+
+
+def test_novo_check_preserva_movimentacoes_indices_e_referencias(migration_project):
+    root, path, app = migration_project
+    create_phase_one(app, 1.25)
+    before = snapshot(path)
+    with app.app_context():
+        upgrade_database(project_root=root)
+        after = snapshot(path)
+        for table in before:
+            if table != "alembic_version":
+                assert after[table] == before[table]
+        with db.engine.connect() as connection:
+            inspector = sa.inspect(connection)
+            checks = {c["name"] for c in inspector.get_check_constraints("movimentacoes_estoque")}
+            assert checks == {"ck_movimentacao_item", "ck_movimentacao_tipo", "ck_movimentacao_saldos", "ck_movimentacao_quantidade_positiva"}
+            assert {i["name"] for i in inspector.get_indexes("movimentacoes_estoque")} == {
+                "ix_movimentacoes_estoque_produto_id", "ix_movimentacoes_estoque_materia_prima_id",
+            }
+            assert len(inspector.get_foreign_keys("movimentacoes_estoque")) == 2
+            assert connection.exec_driver_sql("PRAGMA foreign_key_check").all() == []
+
+
+@pytest.mark.parametrize("quantity", [-1, 0])
+def test_migracao_bloqueia_movimentacao_invalida_sem_alterar_dados(migration_project, quantity):
+    root, path, app = migration_project
+    create_phase_one(app, quantity)
+    before = snapshot(path)
+    with app.app_context(), pytest.raises(MigrationError):
+        upgrade_database(project_root=root)
+    assert snapshot(path) == before
+    backups = list((root / "data/artifacts/backups").glob("*.db"))
+    assert len(backups) == 1
+    assert snapshot(backups[0]) == before
+
+
+def create_phase_three(app, balance):
+    create_phase_one(app, 1.25)
+    with app.app_context(), db.engine.begin() as connection:
+        command.upgrade(_config(connection), "0003_movimentacao_quantidade")
+        connection.exec_driver_sql("UPDATE produtos SET quantidade_disponivel=? WHERE id=7", (balance,))
+        connection.exec_driver_sql("INSERT INTO alertas_estoque (id, tipo_item, produto_id, tipo_alerta, mensagem, nivel, criado_em, ativo) VALUES (13, 'produto', 7, 'estoque_minimo', 'Teste ficticio', 'aviso', '2025-01-01', 1)")
+        connection.exec_driver_sql("INSERT INTO previsoes_demanda (id, produto_id, granularidade, periodo_inicio, periodo_fim, quantidade_prevista, modelo, versao_modelo, gerada_em) VALUES (14, 7, 'diaria', '2025-01-01', '2025-01-01', 1, 'ficticio', 'v1', '2025-01-01')")
+
+
+@pytest.mark.parametrize("balance", [0, 20])
+def test_check_saldo_preserva_tabela_pai_e_todas_referencias(migration_project, balance):
+    root, path, app = migration_project
+    create_phase_three(app, balance)
+    before = snapshot(path)
+    with app.app_context():
+        result = upgrade_database(project_root=root)
+        assert snapshot(result["backup"]) == before
+        after = snapshot(path)
+        assert {k: v for k, v in after.items() if k != "alembic_version"} == {
+            k: v for k, v in before.items() if k != "alembic_version"
+        }
+        with db.engine.connect() as connection:
+            inspector = sa.inspect(connection)
+            assert {c["name"] for c in inspector.get_check_constraints("produtos")} == {"ck_produto_saldo", "ck_produto_minimo"}
+            assert any(i["name"] == "ix_produtos_codigo_externo" and i["unique"] for i in inspector.get_indexes("produtos"))
+            assert any(c["column_names"] == ["nome"] for c in inspector.get_unique_constraints("produtos"))
+            assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
+            assert connection.exec_driver_sql("PRAGMA foreign_key_check").all() == []
+
+
+def test_saldo_legado_negativo_bloqueia_sem_corrigir_e_restaura_fks(migration_project):
+    root, path, app = migration_project
+    create_phase_three(app, -1)
+    before = snapshot(path)
+    with app.app_context():
+        with pytest.raises(MigrationError):
+            upgrade_database(project_root=root)
+        with db.engine.connect() as connection:
+            assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
+    assert snapshot(path) == before
+    backups = list((root / "data/artifacts/backups").glob("*.db"))
+    assert len(backups) == 1
+    assert snapshot(backups[0]) == before

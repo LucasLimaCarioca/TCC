@@ -12,9 +12,9 @@ As regras de diálogo, venda e ajuste de estoque devem ser tratadas nas suas fas
 
 | Modelo | Decisões e restrições |
 |---|---|
-| `Produto` | `codigo_externo` textual, único quando preenchido; produtos legados ficam com NULL. `estoque_minimo` inteiro não negativo, inicialmente zero. Saldo atual e categoria comercial do TCC I preservados. |
+| `Produto` | `codigo_externo` textual, único quando preenchido; produtos legados ficam com NULL. `estoque_minimo` inteiro não negativo, inicialmente zero. Saldo não negativo (zero permitido) e categoria comercial do TCC I preservados. |
 | `MateriaPrima` | Código único, unidade explícita, saldo/mínimo decimais não negativos e estado ativo. |
-| `MovimentacaoEstoque` | Exatamente um produto ou matéria-prima, coerente com `tipo_item`; entrada, saída, ajuste ou venda; saldos não negativos; quantidade, motivo e instante UTC. |
+| `MovimentacaoEstoque` | Exatamente um produto ou matéria-prima, coerente com `tipo_item`; entrada, saída, ajuste ou venda; saldos não negativos; quantidade estritamente positiva, motivo e instante UTC. |
 | `AlertaEstoque` | Exatamente um item; tipo `estoque_minimo` ou `risco_futuro`; nível, mensagem, criação, resolução e estado ativo. |
 | `VendaHistorica` | Uma observação diária por produto externo, com grupo/categoria, quantidade, número de pedidos e hashes. Sem clientes, vendedores ou pedidos individuais. |
 | `PrevisaoDemanda` | Produto existente, granularidade diária/semanal/mensal, período válido, quantidade não negativa, versão/modelo, instante e métricas JSON. |
@@ -68,6 +68,17 @@ As revisões não importam os modelos atuais: o schema de cada versão fica cong
 2. `0002_modelos_tccii`: adiciona os campos do produto, as seis tabelas novas,
    índices, restrições e referências. Não recria nem apaga tabelas de vendas,
    histórico de conversas, clientes ou contextos.
+3. `0003_movimentacao_quantidade`: acrescenta o CHECK `quantidade > 0` em
+   `movimentacoes_estoque`, preservando os registros, índices e referências.
+   Valores negativos e zero são rejeitados para todos os tipos, inclusive
+   ajustes. A quantidade é a magnitude positiva; o sentido da alteração é
+   representado pelo tipo e pelos saldos anterior/posterior. Se o banco legado
+   já tiver uma quantidade não positiva, a migração falha com backup e rollback,
+   sem modificar ou apagar a movimentação; é necessária revisão dos dados.
+4. `0004_produto_saldo`: acrescenta `quantidade_disponivel >= 0` aos produtos.
+   Zero permanece válido. Saldos negativos legados bloqueiam a migração para
+   revisão, sem correção automática. A reconstrução preserva produtos e suas
+   referências em vendas, contextos, movimentações, alertas e previsões.
 
 Com a aplicação parada para evitar escritas concorrentes:
 
@@ -91,6 +102,11 @@ começa. Bancos vazios não precisam de backup; bancos já na revisão atual nã
 são alterados nem geram cópias repetidas.
 
 As alterações usam `BEGIN IMMEDIATE` e verificam as foreign keys antes do commit.
+Para reconstruir tabelas pai no SQLite, a verificação automática de FKs é
+suspensa apenas na conexão de migração, antes do início da transação. O runner
+executa `foreign_key_check` antes do commit e reativa a fiscalização da conexão
+no final, tanto em sucesso quanto em falha. As demais conexões continuam com
+as foreign keys habilitadas.
 Em caso de erro, DDL e dados são revertidos. O erro público não inclui registros.
 A revisão fica em `alembic_version`. Não há downgrade destrutivo automático:
 para recuperação, pare a aplicação e restaure a cópia local apropriada; isso

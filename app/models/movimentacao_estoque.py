@@ -11,6 +11,7 @@ class MovimentacaoEstoque(db.Model):
             name="ck_movimentacao_item",
         ),
         db.CheckConstraint("tipo_movimentacao IN ('entrada', 'saida', 'ajuste', 'venda')", name="ck_movimentacao_tipo"),
+        db.CheckConstraint("quantidade > 0", name="ck_movimentacao_quantidade_positiva"),
         db.CheckConstraint("saldo_anterior >= 0 AND saldo_posterior >= 0", name="ck_movimentacao_saldos"),
     )
 

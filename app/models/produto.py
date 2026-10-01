@@ -4,6 +4,9 @@ from app.database import db
 class Produto(db.Model):
 
     __tablename__ = "produtos"
+    __table_args__ = (
+        db.CheckConstraint("quantidade_disponivel >= 0", name="ck_produto_saldo"),
+    )
 
     id = db.Column(
         db.Integer,

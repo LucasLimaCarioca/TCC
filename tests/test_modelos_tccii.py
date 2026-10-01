@@ -214,3 +214,66 @@ def test_log_persiste_payload_json_e_correlacao(migrated):
     assert row.payload == {"produto_id": 1, "horizonte_dias": 7}
     assert row.thread == "teste-001"
     assert row.timestamp is not None
+
+
+@pytest.mark.parametrize("tipo", ["entrada", "saida", "ajuste", "venda"])
+@pytest.mark.parametrize("quantidade", [Decimal("-1"), Decimal("0"), Decimal("0.25")])
+def test_movimentacao_exige_quantidade_positiva(migrated, tipo, quantidade):
+    _, product_id, _ = migrated
+    row = MovimentacaoEstoque(
+        tipo_item="produto", produto_id=product_id, tipo_movimentacao=tipo,
+        quantidade=quantidade, saldo_anterior=1, saldo_posterior=1,
+        motivo="Movimentacao ficticia",
+    )
+    db.session.add(row)
+    if quantidade <= 0:
+        with pytest.raises(IntegrityError, match="ck_movimentacao_quantidade_positiva"):
+            db.session.commit()
+        db.session.rollback()
+        assert MovimentacaoEstoque.query.count() == 0
+    else:
+        db.session.commit()
+        db.session.remove()
+        assert MovimentacaoEstoque.query.one().quantidade == quantidade
+
+
+@pytest.mark.parametrize("quantidade", [-1, 0])
+def test_check_quantidade_tambem_existe_no_create_all(app, catalogo, quantidade):
+    with app.app_context():
+        db.session.add(MovimentacaoEstoque(
+            tipo_item="produto", produto_id=next(iter(catalogo.values())),
+            tipo_movimentacao="entrada", quantidade=quantidade,
+            saldo_anterior=0, saldo_posterior=1, motivo="Teste ficticio",
+        ))
+        with pytest.raises(IntegrityError, match="ck_movimentacao_quantidade_positiva"):
+            db.session.commit()
+        db.session.rollback()
+
+
+@pytest.mark.parametrize("operation", ["insert", "update"])
+@pytest.mark.parametrize("quantity", [-1, 0, 5])
+def test_produto_exige_saldo_nao_negativo(migrated, operation, quantity):
+    _, product_id, _ = migrated
+    if operation == "insert":
+        product = Produto(nome="Novo Produto Ficticio", preco=1, quantidade_disponivel=quantity)
+        db.session.add(product)
+    else:
+        product = db.session.get(Produto, product_id)
+        product.quantidade_disponivel = quantity
+    if quantity < 0:
+        with pytest.raises(IntegrityError, match="ck_produto_saldo"):
+            db.session.commit()
+        db.session.rollback()
+        assert db.session.get(Produto, product_id).quantidade_disponivel == 20
+    else:
+        db.session.commit()
+        db.session.refresh(product)
+        assert product.quantidade_disponivel == quantity
+
+
+def test_check_saldo_produto_tambem_existe_no_create_all(app):
+    with app.app_context():
+        db.session.add(Produto(nome="Produto Ficticio Negativo", preco=1, quantidade_disponivel=-1))
+        with pytest.raises(IntegrityError, match="ck_produto_saldo"):
+            db.session.commit()
+        db.session.rollback()

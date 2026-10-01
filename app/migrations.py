@@ -68,6 +68,10 @@ def upgrade_database(*, project_root=None):
             backup = _backup(database_path, project_root)
         # PRAGMA/inspeções anteriores iniciam a transação SQLAlchemy implicitamente.
         connection.rollback()
+        # O batch SQLite precisa reconstruir tabelas referenciadas por FKs.
+        # O PRAGMA deve mudar antes do BEGIN; somente esta conexão é afetada.
+        connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+        connection.commit()
         try:
             # SQLite legado não inclui DDL em transações implícitas do sqlite3.
             connection.exec_driver_sql("BEGIN IMMEDIATE")
@@ -81,6 +85,10 @@ def upgrade_database(*, project_root=None):
             raise MigrationError(
                 f"Migração cancelada ({type(error).__name__}); alterações revertidas." + suffix
             ) from None
+        finally:
+            # Nunca devolve à pool uma conexão com as referências desabilitadas.
+            connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+            connection.commit()
     return {"updated": True, "revision": head, "backup": backup}
 
 
