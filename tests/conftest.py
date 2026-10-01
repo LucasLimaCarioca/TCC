@@ -8,18 +8,42 @@ from app.models.cliente import Cliente
 from app.models.produto import Produto
 
 
+def pytest_addoption(parser):
+    parser.addoption("--spade", action="store_true", default=False,
+                     help="Executar os testes selecionados com gateway e agentes XMPP reais.")
+
+
 @pytest.fixture
-def app(tmp_path):
+def app(tmp_path, request):
     application = create_app({
         "TESTING": True,
         "SQLALCHEMY_DATABASE_URI": f"sqlite:///{tmp_path / 'teste.db'}",
     })
     with application.app_context():
         db.create_all()
-    yield application
-    with application.app_context():
-        db.session.remove()
-        db.engine.dispose()
+    runtime = None
+    try:
+        if request.config.getoption("--spade"):
+            import socket
+            from app.agents.config import RuntimeConfig
+            from app.agents.gateway import AgentGateway
+            from app.agents.runtime import AgentRuntime
+            with socket.socket() as first, socket.socket() as second:
+                first.bind(("127.0.0.1", 0))
+                second.bind(("127.0.0.1", 0))
+                ports = first.getsockname()[1], second.getsockname()[1]
+            config = RuntimeConfig({name: "senha-ficticia" for name in
+                                    ("atendimento", "estoque", "previsao")}, *ports)
+            runtime = AgentRuntime(application, config).start()
+            application.extensions["agent_runtime"] = runtime
+            application.extensions["agent_gateway"] = AgentGateway(runtime)
+        yield application
+    finally:
+        if runtime:
+            runtime.stop()
+        with application.app_context():
+            db.session.remove()
+            db.engine.dispose()
 
 
 @pytest.fixture

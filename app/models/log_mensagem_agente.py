@@ -3,7 +3,7 @@ from app.models.timestamps import utc_now
 
 
 class LogMensagemAgente(db.Model):
-    """Estrutura para mensagens futuras; o emissor deve remover dados pessoais."""
+    """Metadados de comunicação; o runtime omite o conteúdo dos payloads."""
 
     __tablename__ = "logs_mensagens_agentes"
 

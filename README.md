@@ -14,8 +14,9 @@ O projeto simula um sistema de atendimento virtual para uma sorveteria, com foco
 
 O protótipo atual utiliza Flask, SQLite e SQLAlchemy. Na Fase 2, o atendimento foi
 separado em um serviço de aplicação e módulos de diálogo determinísticos.
-`AtendimentoAgent` mantém a interface utilizada pelas rotas; a integração com
-SPADE será realizada na Fase 3.
+Na Fase 3, `AgentGateway` conecta o Flask ao runtime com os três agentes
+SPADE e servidor XMPP local. `AtendimentoAgent` mantém a fachada compatível
+para execução local sem runtime.
 
 ## Arquitetura
 
@@ -25,7 +26,9 @@ Interface Flask
    ↓
 Rotas HTTP / Templates / APIs
    ↓
-AtendimentoAgent (fachada)
+AgentGateway → Runtime SPADE (loop dedicado)
+   ↓
+AtendimentoSPADEAgent ↔ EstoqueAgent ↔ PrevisaoAgent
    ↓
 AtendimentoService → IntentParser / OrderParser / ResponseBuilder
    ↓
@@ -66,11 +69,11 @@ Histórico da conversa é salvo por cliente
 - SQLite: banco de dados local do protótipo.
 - HTML/Jinja2: templates renderizados pelo Flask.
 - CSS: estilização da interface.
+- SPADE 4.1.4 / PyJabber 0.4.5: agentes e comunicação XMPP local.
 
 ### Dependências previstas para etapas futuras do TCC
 
 
-- SPADE 4.1.4: dependência instalada, ainda sem agentes ou servidor XMPP em execução.
 - Pandas: manipulação de dados.
 - Scikit-learn: modelos de previsão/demanda em fases futuras.
 - Streamlit: dependência herdada, sem uso no código atual; a interface continua em Flask.
@@ -85,7 +88,15 @@ não implementa previsão, novos agentes, integração de LLM ou receitas/BOM.
 TCC/
 ├── app/
 │   ├── agents/
-│   │   └── atendimento_agent.py
+│   │   ├── atendimento_agent.py
+│   │   ├── base_agent.py
+│   │   ├── config.py
+│   │   ├── estoque_agent.py
+│   │   ├── previsao_agent.py
+│   │   ├── protocol.py
+│   │   ├── gateway.py
+│   │   ├── runtime.py
+│   │   └── xmpp_server.py
 │   ├── dialogue/
 │   │   ├── intent_parser.py
 │   │   ├── order_parser.py
@@ -136,7 +147,9 @@ TCC/
 
 ### `run.py`
 
-Arquivo de entrada da aplicação. Cria o app Flask e inicia o servidor de desenvolvimento.
+Arquivo de entrada da aplicação. Inicializa o runtime SPADE/XMPP e o Flask,
+com encerramento explícito e reloader desativado. Configure as três senhas
+XMPP no ambiente conforme o [guia da Fase 3](docs/FASE_3_SPADE_XMPP.md).
 
 ```bash
 .venv/bin/python run.py
@@ -280,7 +293,8 @@ Cada item vendido é salvo como um registro de venda. Um pedido com dois produto
 - `VendaHistorica`: demanda diária preparada, grupo/categoria e hashes de origem,
   sem dados pessoais ou identificadores individuais de pedidos.
 - `PrevisaoDemanda`: produto, período, granularidade, quantidade, modelo e métricas.
-- `LogMensagemAgente`: estrutura de mensagens e correlação para fases futuras.
+- `LogMensagemAgente`: metadados de comunicação e correlação por `thread`,
+  com o conteúdo do payload omitido pelo runtime.
 
 Nesta fase foram criadas estruturas e restrições de integridade. As rotinas de
 movimentação, alertas, importação e previsão serão implementadas nas fases seguintes.
@@ -522,11 +536,20 @@ python seed.py
 Em um banco já utilizado, esse comando redefine os saldos dos produtos iniciais.
 Não é necessário repeti-lo a cada inicialização.
 
-### 6. Rodar aplicação
+### 6. Configurar senhas e rodar aplicação
 
 ```bash
+export XMPP_ATENDIMENTO_PASSWORD="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+export XMPP_ESTOQUE_PASSWORD="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+export XMPP_PREVISAO_PASSWORD="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
 python run.py
 ```
+
+Senhas obrigatórias vêm do ambiente; não há valor padrão. `.env.example` lista
+portas e timeouts opcionais. O launcher não carrega o arquivo automaticamente.
+Para usar apenas o atendimento local: `TCC_SPADE_ENABLED=0 python run.py`.
+Consulte [a Fase 3](docs/FASE_3_SPADE_XMPP.md) para lifecycle e configuração.
+
 
 A aplicação ficará disponível em:
 
@@ -554,6 +577,12 @@ produto sem estoque, quantidade acima do saldo, preço específico e preços mú
 Os demais testes cobrem o serviço de vendas, contexto/histórico por cliente e
 as telas/APIs existentes. A suíte também cobre a preparação privada dos dados,
 os modelos da Fase 1 e migrações em banco vazio e legado, incluindo rollback.
+A infraestrutura SPADE/XMPP tem testes reais com sockets de loopback. Para
+executar os cenários de atendimento pelo gateway SPADE:
+
+```bash
+python -m pytest tests/test_regressao_tcc_i.py tests/test_atendimento_contexto.py --spade -q
+```
 
 Para executar somente os oito casos ou exportar evidências:
 
@@ -606,9 +635,10 @@ Veja o [guia de preparação dos dados](docs/PREPARACAO_DADOS.md).
 
 ## Estado atual do protótipo
 
-Fases 0, preparação dos dados, 1 (modelos/migrações) e 2 (refatoração do
-atendimento) concluídas. A próxima etapa do plano é a Fase 3, integração SPADE
-e runtime multiagente.
+Fases 0, preparação dos dados, 1 (modelos/migrações), 2 (refatoração do
+atendimento) e 3 (infraestrutura SPADE/XMPP) concluídas. A próxima etapa é a
+Fase 4, implementação das operações de Controle de Estoque.
+Detalhes: [Fase 3](docs/FASE_3_SPADE_XMPP.md).
 
 Funcionalidades já implementadas:
 
@@ -631,7 +661,8 @@ Funcionalidades já implementadas:
 ## Limitações atuais
 
 - O agente usa regras simples por palavras-chave.
-- Ainda não há integração real com SPADE.
+- Estoque e Previsão têm infraestrutura de comunicação; suas operações de negócio
+  serão implementadas nas fases seguintes.
 - Ainda não há autenticação de usuários.
 - O estoque é simplificado e fica dentro da tabela `produtos`.
 - Um pedido com múltiplos produtos gera múltiplos registros na tabela `vendas`.
@@ -642,7 +673,6 @@ Funcionalidades já implementadas:
 - melhorar interpretação de intenção;
 - criar uma entidade formal de pedido com múltiplos itens;
 - adicionar métricas para avaliação do protótipo;
-- integrar SPADE em uma fase posterior;
 - criar agente de previsão de demanda;
 - criar agente de controle de estoque;
 - exportar relatórios de vendas e atendimentos.

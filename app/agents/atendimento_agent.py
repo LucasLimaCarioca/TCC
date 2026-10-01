@@ -1,10 +1,32 @@
-"""Fachada compatível com as rotas do TCC I para o serviço de atendimento."""
+"""Agente SPADE de Atendimento e fachada local compatível com o TCC I."""
+
+import asyncio
 
 from app.services.atendimento_service import AtendimentoService
+from app.agents.base_agent import AgentUnavailable, BaseAgent
+
+
+class AtendimentoSPADEAgent(BaseAgent):
+    """Agente real, com serviço executado em worker e contexto Flask próprio."""
+
+    def __init__(self, password, app, port=5222, audit=None):
+        super().__init__("atendimento", password, port, audit)
+        self.app = app
+
+    async def responder(self, mensagem, cliente_nome="Cliente Simulado"):
+        if not self.is_alive() or not self.client.is_connected():
+            raise AgentUnavailable("Agente de atendimento desconectado.")
+
+        def execute():
+            with self.app.app_context():
+                return AtendimentoService().responder(mensagem, cliente_nome=cliente_nome)
+
+        # Nenhuma sessão ORM ou contexto Flask atravessa a ponte entre threads.
+        return await asyncio.to_thread(execute)
 
 
 class AtendimentoAgent:
-    """Delega o atendimento síncrono; a integração SPADE pertence à Fase 3."""
+    """Fachada local compatível usada quando o runtime está desativado."""
 
     def __init__(self):
         self.service = AtendimentoService()

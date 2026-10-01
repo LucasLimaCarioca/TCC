@@ -33,4 +33,14 @@ def create_app(test_config=None):
     app.register_blueprint(estoque_bp)
     app.register_blueprint(produto_bp)
 
+    from app.agents.base_agent import AgentUnavailable, RemoteFailure
+
+    @app.errorhandler(AgentUnavailable)
+    def runtime_indisponivel(error):
+        return {"erro": "Atendimento temporariamente indisponível. Tente novamente."}, 503
+
+    @app.errorhandler(RemoteFailure)
+    def falha_agente(error):
+        return {"erro": "Não foi possível concluir a operação solicitada."}, 503
+
     return app

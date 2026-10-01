@@ -1,5 +1,6 @@
 from flask import (
     Blueprint,
+    current_app,
     jsonify,
     render_template,
     request
@@ -24,6 +25,18 @@ venda_bp = Blueprint(
 
 # Instancia unica do agente simplificado que gera as respostas do atendimento.
 agent = AtendimentoAgent()
+
+
+def atendimento_gateway():
+    return current_app.extensions.get("agent_gateway", agent)
+
+
+@venda_bp.get("/api/agentes/status")
+def agentes_status():
+    runtime = current_app.extensions.get("agent_runtime")
+    if runtime is None:
+        return {"running": False, "agents": {}, "transport": "local"}
+    return runtime.health()
 
 
 def buscar_cliente_selecionado():
@@ -83,7 +96,7 @@ def simulacao_venda():
         cliente_nome = cliente_selecionado.nome
 
         # Envia a mensagem ao agente
-        resposta = agent.responder(
+        resposta = atendimento_gateway().responder(
             mensagem,
             cliente_nome=cliente_nome
         )
@@ -123,7 +136,7 @@ def atendimento_api():
     if not mensagem:
         return jsonify({"erro": "Mensagem não informada."}), 400
 
-    resposta = agent.responder(
+    resposta = atendimento_gateway().responder(
         mensagem,
         cliente_nome=cliente_nome
     )
