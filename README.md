@@ -12,7 +12,10 @@ O projeto simula um sistema de atendimento virtual para uma sorveteria, com foco
 - suporte a pedidos com múltiplos produtos;
 - produtos com mesma variação/sabor em categorias/tamanhos diferentes.
 
-O protótipo atual utiliza Flask, SQLite e SQLAlchemy. O agente de atendimento ainda não usa SPADE; ele simula o comportamento de um agente por meio de uma classe Python com interpretação simples de intenções.
+O protótipo atual utiliza Flask, SQLite e SQLAlchemy. Na Fase 2, o atendimento foi
+separado em um serviço de aplicação e módulos de diálogo determinísticos.
+`AtendimentoAgent` mantém a interface utilizada pelas rotas; a integração com
+SPADE será realizada na Fase 3.
 
 ## Arquitetura
 
@@ -22,9 +25,11 @@ Interface Flask
    ↓
 Rotas HTTP / Templates / APIs
    ↓
-AtendimentoAgent
+AtendimentoAgent (fachada)
    ↓
-Serviços de venda
+AtendimentoService → IntentParser / OrderParser / ResponseBuilder
+   ↓
+Serviço de vendas
    ↓
 Modelos SQLAlchemy
    ↓
@@ -38,9 +43,9 @@ Cliente envia mensagem
    ↓
 Rota Flask recebe o texto
    ↓
-AtendimentoAgent interpreta a intenção
+AtendimentoService interpreta a intenção com IntentParser
    ↓
-Agente consulta produtos/estoque no banco
+Serviço consulta produtos/estoque e usa OrderParser para identificar itens
    ↓
 Se for pedido, salva contexto e pede confirmação
    ↓
@@ -81,6 +86,10 @@ TCC/
 ├── app/
 │   ├── agents/
 │   │   └── atendimento_agent.py
+│   ├── dialogue/
+│   │   ├── intent_parser.py
+│   │   ├── order_parser.py
+│   │   └── response_builder.py
 │   ├── models/
 │   │   ├── cliente.py
 │   │   ├── contexto_conversa.py
@@ -92,6 +101,7 @@ TCC/
 │   │   ├── produto_routes.py
 │   │   └── venda_routes.py
 │   ├── services/
+│   │   ├── atendimento_service.py
 │   │   └── venda_service.py
 │   ├── static/
 │   │   └── css/
@@ -260,9 +270,12 @@ Cada item vendido é salvo como um registro de venda. Um pedido com dois produto
 
 Arquivo: `app/agents/atendimento_agent.py`
 
-O `AtendimentoAgent` é o protótipo do agente de atendimento.
+O `AtendimentoAgent` delega os métodos públicos `responder`, `registrar_venda` e
+`registrar_pedido` ao `AtendimentoService`. O serviço coordena consultas, contexto
+persistido por cliente e registro de vendas; os módulos em `app/dialogue/`
+interpretam mensagens e formatam respostas sem acessar o banco.
 
-Ele executa as seguintes funções:
+O atendimento executa as seguintes funções:
 
 - recebe mensagens de clientes;
 - normaliza o texto;
@@ -295,6 +308,9 @@ quero 2 caixas de 10L chocolate e 1 caixa de 5L morango
 sim
 não
 ```
+
+Detalhes da separação e das regras preservadas:
+[Fase 2 — Atendimento](docs/FASE_2_ATENDIMENTO.md).
 
 ## Serviço de vendas
 
@@ -527,7 +543,8 @@ python -m pytest --junitxml=/tmp/tcc-fase-0.xml
 ```
 
 Consulte [o relatório da Fase 0](docs/BASELINE_FASE_0.md) para os resultados,
-o escopo validado e as decisões pendentes antes da Fase 1.
+o escopo validado e os comportamentos conhecidos. A
+[Fase 2](docs/FASE_2_ATENDIMENTO.md) registra a refatoração e sua validação atual.
 
 ## Proteção dos dados históricos
 
@@ -568,6 +585,10 @@ a liberação do dataset e exigem revisão pelo relatório local.
 Veja o [guia de preparação dos dados](docs/PREPARACAO_DADOS.md).
 
 ## Estado atual do protótipo
+
+Fases 0, preparação dos dados, 1 (modelos/migrações) e 2 (refatoração do
+atendimento) concluídas. A próxima etapa do plano é a Fase 3, integração SPADE
+e runtime multiagente.
 
 Funcionalidades já implementadas:
 
