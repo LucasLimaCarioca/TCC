@@ -3,6 +3,7 @@
 from datetime import date
 from decimal import Decimal
 import hashlib
+from uuid import uuid4
 
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -11,7 +12,7 @@ from app.app import create_app
 from app.database import db
 from app.migrations import upgrade_database
 from app.models import (
-    AlertaEstoque, LogMensagemAgente, MateriaPrima, MovimentacaoEstoque,
+    AlertaEstoque, LogMensagemAgente, MateriaPrima, MovimentacaoEstoque, OperacaoEstoque,
     PrevisaoDemanda, Produto, VendaHistorica,
 )
 
@@ -214,6 +215,28 @@ def test_log_persiste_payload_json_e_correlacao(migrated):
     assert row.payload == {"produto_id": 1, "horizonte_dias": 7}
     assert row.thread == "teste-001"
     assert row.timestamp is not None
+
+
+@pytest.mark.parametrize("tipo", ["venda", "movimentacao"])
+def test_operacao_estoque_persiste_tipos_suportados(migrated, tipo):
+    receipt = OperacaoEstoque(id=str(uuid4()), tipo=tipo, request_hash="a" * 64,
+                             resultado={"ficticio": True})
+    db.session.add(receipt)
+    db.session.commit()
+    db.session.remove()
+    assert OperacaoEstoque.query.one().resultado == {"ficticio": True}
+
+
+@pytest.mark.parametrize("changes", [{"tipo": "ajuste"}, {"tipo": ""},
+    {"request_hash": "a" * 63}, {"request_hash": "a" * 65}, {"request_hash": ""}])
+def test_operacao_estoque_check_rejeita_tipo_ou_hash_invalidos(migrated, changes):
+    values = {"id": str(uuid4()), "tipo": "venda", "request_hash": "a" * 64,
+              "resultado": {"ficticio": True}, **changes}
+    db.session.add(OperacaoEstoque(**values))
+    with pytest.raises(IntegrityError, match="ck_operacao_"):
+        db.session.commit()
+    db.session.rollback()
+    assert OperacaoEstoque.query.count() == 0
 
 
 @pytest.mark.parametrize("tipo", ["entrada", "saida", "ajuste", "venda"])

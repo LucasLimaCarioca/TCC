@@ -97,10 +97,10 @@ def test_quantidade_omitida_assume_um(conversar):
 
 def test_zero_so_e_rejeitado_na_confirmacao(conversar, app):
     assert "0 unidade(s)" in conversar("quero 0 caixas de 10L chocolate")
-    assert conversar("sim") == "Informe uma quantidade maior que zero."
+    assert conversar("sim").startswith("Informe uma quantidade maior que zero.\nO pedido continua pendente.")
     with app.app_context():
         assert Venda.query.count() == 0
-        assert ContextoConversa.query.count() == 0
+        assert ContextoConversa.query.count() == 1
 
 
 def test_palavra_sabor_tem_prioridade_sobre_pedido(conversar):

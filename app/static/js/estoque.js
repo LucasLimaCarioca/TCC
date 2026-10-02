@@ -53,6 +53,10 @@ bind("materia-form", async (form) => {
     await send("/api/estoque/materias-primas", "POST", Object.fromEntries(new FormData(form)));
     window.location.reload();
 });
+bind("sincronizar-form", async () => {
+    await send("/api/estoque/alertas/sincronizar", "POST");
+    window.location.reload();
+});
 bind("risco-form", async (form) => {
     const result = await send(`/api/estoque/risco/${form.elements.produto_id.value}`, "GET");
     document.getElementById("risco-feedback").textContent = result.mensagem || (result.risco ? "O saldo projetado fica abaixo do estoque mínimo." : "O saldo projetado atende ao estoque mínimo.");

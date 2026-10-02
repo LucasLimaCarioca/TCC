@@ -30,9 +30,7 @@ class EstoqueClient:
     def registrar_pedido(self, itens, cliente_nome="Cliente Simulado", operacao_id=None):
         try:
             grouped = estoque_service.agrupar_itens(itens)
-            if not grouped:
-                return True, "Venda registrada com sucesso.", []
-            estoque_service.validar_cliente(cliente_nome)
+            cliente_nome = estoque_service.validar_cliente(cliente_nome)
             operacao_id = estoque_service.validar_operacao_id(operacao_id)
             gateway = self._gateway()
             if gateway:
@@ -40,8 +38,10 @@ class EstoqueClient:
             else:
                 result = estoque_service.registrar_venda(grouped, cliente_nome, operacao_id)
         except (EstoqueError, RemoteFailure) as error:
+            if error.code == "IDEMPOTENCY_CONFLICT":
+                raise EstoqueError(error.code, str(error)) from None
             if error.code not in {"INVALID_QUANTITY", "INVALID_INPUT", "PRODUCT_NOT_FOUND",
-                                  "INSUFFICIENT_STOCK", "INVALID_OPERATION", "IDEMPOTENCY_CONFLICT"}:
+                                  "INSUFFICIENT_STOCK", "INVALID_OPERATION"}:
                 raise
             return False, str(error), []
         db.session.expire_all()

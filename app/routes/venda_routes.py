@@ -15,7 +15,7 @@ from app.models.historico_conversa import HistoricoConversa
 from app.models.produto import Produto
 from app.models.venda import Venda
 from app.services.venda_service import registrar_venda
-from app.services.estoque_service import EstoqueError
+from app.services.estoque_service import EstoqueError, resolver_chaves_operacao, validar_cliente
 from uuid import uuid4
 
 # Blueprint agrupa as rotas relacionadas ao atendimento e às vendas.
@@ -53,7 +53,7 @@ def agentes_status():
 
 
 def buscar_cliente_selecionado():
-    # O atendimento visual trabalha com tres clientes simulados.
+    # O atendimento visual trabalha com cinco clientes simulados.
     # O cliente selecionado vem pela URL (?cliente_id=), permitindo trocar conversas.
     # request.values lê tanto query string (GET) quanto formulário (POST).
     cliente_id = request.values.get("cliente_id", type=int)
@@ -143,7 +143,7 @@ def atendimento_api():
     dados = request.get_json(silent=True) or request.form
 
     mensagem = dados.get("mensagem", "").strip()
-    cliente_nome = dados.get("cliente_nome") or "Cliente Simulado"
+    cliente_nome = validar_cliente(dados.get("cliente_nome") or "Cliente Simulado")
 
     # Retorna erro 400 quando a requisição não envia texto para o agente.
     if not mensagem:
@@ -192,7 +192,7 @@ def tela_vendas():
             produto_id,
             quantidade,
             cliente_nome=cliente_nome,
-            operacao_id=request.form.get("operacao_id")
+            operacao_id=resolver_chaves_operacao(request.headers.get("Idempotency-Key"), request.form.get("operacao_id"))
         )
 
         if sucesso:
@@ -262,7 +262,7 @@ def cadastrar_venda_api():
         produto_id,
         quantidade,
         cliente_nome=cliente_nome,
-        operacao_id=request.headers.get("Idempotency-Key") or dados.get("operacao_id")
+        operacao_id=resolver_chaves_operacao(request.headers.get("Idempotency-Key"), dados.get("operacao_id"))
     )
 
     # Erros de validação, como estoque insuficiente, retornam HTTP 400.

@@ -1,5 +1,9 @@
 # Fase 2 — Refatoração do Atendimento
 
+Este documento registra o comportamento preservado na Fase 2. A validação de
+itens repetidos e as correções de pedido vazio e contexto após falta de estoque
+foram tratadas posteriormente na [Fase 4](FASE_4_ESTOQUE.md).
+
 ## Resultado e escopo
 
 O atendimento agora possui um serviço de aplicação e módulos de diálogo

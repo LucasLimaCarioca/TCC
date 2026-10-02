@@ -7,7 +7,7 @@
     <section class="content-panel">
 
         <div class="section-header">
-            <h1>Produtos e Estoque</h1>
+            <h1>Controle de Estoque</h1>
             <p>Produtos acabados, matérias-primas, movimentações e alertas de estoque.</p>
         </div>
 
@@ -113,6 +113,10 @@
     <section class="content-panel">
         <h2>Alertas de estoque</h2>
         <ul>{% for alerta in estoque.alertas if alerta.ativo %}<li>{{ alerta.mensagem }}</li>{% else %}<li>Nenhum alerta ativo.</li>{% endfor %}</ul>
+        <form id="sincronizar-form" class="stock-form">
+            <p>Para revisar itens cadastrados antes deste controle, sincronize os alertas. Entradas, saídas, ajustes, vendas e alterações de mínimo já os atualizam automaticamente.</p>
+            <button type="submit">Sincronizar alertas</button>
+        </form>
         <form id="risco-form" class="stock-form">
             <h3>Consultar risco futuro</h3>
             <label>Produto <select name="produto_id" required>{% for produto in produtos %}<option value="{{ produto.id }}">{{ produto.nome }}</option>{% endfor %}</select></label>

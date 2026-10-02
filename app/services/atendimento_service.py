@@ -10,6 +10,7 @@ from app.dialogue.response_builder import ResponseBuilder
 from app.models.contexto_conversa import ContextoConversa
 from app.models.produto import Produto
 from app.services.estoque_client import EstoqueClient
+from app.services.estoque_service import validar_cliente
 
 
 class AtendimentoService:
@@ -22,6 +23,7 @@ class AtendimentoService:
         self.estoque = estoque or EstoqueClient()
 
     def responder(self, mensagem, cliente_nome="Cliente Simulado"):
+        cliente_nome = validar_cliente(cliente_nome)
         # O contexto persistido tem prioridade sobre uma nova intenção.
         mensagem_normalizada = self.intent_parser.normalizar(mensagem)
 
@@ -88,6 +90,10 @@ class AtendimentoService:
         return self.responses.venda_registrada(vendas[0])
 
     def registrar_pedido(self, itens, cliente_nome="Cliente Simulado", operacao_id=None):
+        _, resposta = self._registrar_pedido(itens, cliente_nome, operacao_id)
+        return resposta
+
+    def _registrar_pedido(self, itens, cliente_nome, operacao_id):
         # Registra todos os itens confirmados pelo cliente em uma única operação.
         # "itens" vem do contexto salvo após o agente montar o resumo do pedido.
         sucesso, mensagem, vendas = self.estoque.registrar_pedido(
@@ -97,9 +103,9 @@ class AtendimentoService:
         )
 
         if not sucesso:
-            return mensagem
+            return False, mensagem
 
-        return self.responses.pedido_registrado(vendas)
+        return True, self.responses.pedido_registrado(vendas)
 
     def _buscar_produtos_ativos(self):
         # Consulta centralizada para manter as respostas sempre baseadas no banco.
@@ -197,7 +203,7 @@ class AtendimentoService:
         db.session.commit()
 
     def _limpar_contexto(self, contexto):
-        # Remove ao cancelar ou após receber o resultado da confirmação.
+        # Remove somente ao cancelar explicitamente ou confirmar com sucesso.
         db.session.delete(contexto)
         db.session.commit()
 
@@ -251,11 +257,14 @@ class AtendimentoService:
             if contexto.operacao_id is None:
                 contexto.operacao_id = str(uuid4())
                 db.session.commit()
-            resposta = self.registrar_pedido(
+            sucesso, resposta = self._registrar_pedido(
                 itens, cliente_nome=cliente_nome, operacao_id=contexto.operacao_id)
             # Se o transporte falhar, a exceção mantém o contexto e a chave para
             # uma repetição segura, inclusive se o Estoque já confirmou a venda.
-            self._limpar_contexto(contexto)
+            if sucesso:
+                self._limpar_contexto(contexto)
+            else:
+                resposta += "\nO pedido continua pendente. Você pode enviar outro pedido ou responder não para cancelar."
             return resposta
 
         if self.intent_parser.interpretar(mensagem) == "registrar_venda":

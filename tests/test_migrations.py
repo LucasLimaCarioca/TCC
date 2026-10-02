@@ -18,6 +18,7 @@ from app.database import db
 from app.migrations import MigrationError, _config, upgrade_database
 from app.models.produto import Produto
 from app.services.venda_service import registrar_venda
+from app.services import estoque_service
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,7 +64,7 @@ def test_banco_vazio_cria_schema_equivalente_aos_modelos(migration_project):
     root, _, app = migration_project
     with app.app_context():
         result = upgrade_database(project_root=root)
-        assert result == {"updated": True, "revision": "0005_operacoes_estoque", "backup": None}
+        assert result == {"updated": True, "revision": "0006_integridade_operacoes", "backup": None}
         with db.engine.connect() as connection:
             assert compare_metadata(MigrationContext.configure(connection), db.metadata) == []
             assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
@@ -163,7 +164,7 @@ def test_cli_upgrade_current_e_create_db_compativeis(migration_project, monkeypa
     assert result.exit_code == 0, result.output
     result = app.test_cli_runner().invoke(args=["db", "current"])
     assert result.exit_code == 0
-    assert "0005_operacoes_estoque" in result.output
+    assert "0006_integridade_operacoes" in result.output
     monkeypatch.setattr("app.app.create_app", lambda: app)
     with pytest.raises(SystemExit) as result:
         runpy.run_path(str(ROOT / "create_db.py"), run_name="__main__")
@@ -268,3 +269,44 @@ def test_saldo_legado_negativo_bloqueia_sem_corrigir_e_restaura_fks(migration_pr
     backups = list((root / "data/artifacts/backups").glob("*.db"))
     assert len(backups) == 1
     assert snapshot(backups[0]) == before
+
+
+def create_phase_five(app):
+    with app.app_context(), db.engine.begin() as connection:
+        command.upgrade(_config(connection), "0005_operacoes_estoque")
+        connection.exec_driver_sql("INSERT INTO produtos (id,nome,categoria,sabor,preco,descricao,quantidade_disponivel,ativo,estoque_minimo) VALUES (7,'Produto Ficticio','caixa de 10L','chocolate',10,'Descricao ficticia',20,1,0)")
+
+
+def test_integridade_operacoes_migra_0005_preservando_recibos_e_auditoria(migration_project):
+    root, path, app = migration_project
+    create_phase_five(app)
+    with app.app_context():
+        estoque_service.registrar_venda([{"produto_id": 7, "quantidade": 2}], "Cliente Ficticio")
+    before = snapshot(path)
+    with app.app_context():
+        result = upgrade_database(project_root=root)
+        assert result["revision"] == "0006_integridade_operacoes"
+        assert snapshot(result["backup"]) == before
+        after = snapshot(path)
+        assert {k: v for k, v in after.items() if k != "alembic_version"} == {
+            k: v for k, v in before.items() if k != "alembic_version"}
+        with db.engine.connect() as connection:
+            checks = {c["name"] for c in sa.inspect(connection).get_check_constraints("operacoes_estoque")}
+            assert checks == {"ck_operacao_tipo", "ck_operacao_request_hash"}
+            assert connection.exec_driver_sql("PRAGMA foreign_key_check").all() == []
+        assert upgrade_database(project_root=root)["updated"] is False
+
+
+@pytest.mark.parametrize(("tipo", "request_hash"), [("invalido", "a" * 64), ("venda", "curto")])
+def test_integridade_operacoes_bloqueia_legado_invalido_com_backup_e_rollback(migration_project, tipo, request_hash):
+    root, path, app = migration_project
+    create_phase_five(app)
+    with app.app_context(), db.engine.begin() as connection:
+        connection.exec_driver_sql("INSERT INTO operacoes_estoque (id,tipo,request_hash,resultado,criado_em) VALUES (?,?,?,?,?)",
+            ("00000000-0000-0000-0000-000000000001", tipo, request_hash, '{"ficticio":true}', "2025-01-01 00:00:00"))
+    before = snapshot(path)
+    with app.app_context(), pytest.raises(MigrationError):
+        upgrade_database(project_root=root)
+    assert snapshot(path) == before
+    backups = list((root / "data/artifacts/backups").glob("*.db"))
+    assert len(backups) == 1 and snapshot(backups[0]) == before

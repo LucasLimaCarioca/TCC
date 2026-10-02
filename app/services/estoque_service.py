@@ -49,6 +49,8 @@ def quantidade_item(value, tipo_item, minimum=0):
 def agrupar_itens(itens):
     if type(itens) is not list:
         raise EstoqueError("INVALID_INPUT", "Pedido inválido.")
+    if not itens:
+        raise EstoqueError("INVALID_INPUT", "Informe ao menos um produto no pedido.")
     grouped = {}
     for item in itens:
         if type(item) is not dict:
@@ -69,8 +71,28 @@ def validar_operacao_id(operacao_id):
 
 
 def validar_cliente(cliente_nome):
-    if not isinstance(cliente_nome, str) or not cliente_nome.strip() or len(cliente_nome) > 100:
+    if not isinstance(cliente_nome, str):
         raise EstoqueError("INVALID_INPUT", "Nome do cliente inválido.")
+    nome = cliente_nome.strip()
+    if not nome or len(nome) > 100:
+        raise EstoqueError("INVALID_INPUT", "Nome do cliente inválido.")
+    return nome
+
+
+def resolver_chaves_operacao(chave_header, operacao_id):
+    chaves = [validar_operacao_id(value) for value in (chave_header, operacao_id) if value is not None]
+    if len(set(chaves)) > 1:
+        raise EstoqueError("INVALID_OPERATION", "Idempotency-Key e operacao_id devem identificar a mesma operação.")
+    return chaves[0] if chaves else None
+
+
+def _decimal_canonico(value):
+    if type(value) is int:
+        return str(value)
+    if value == 0:
+        return "0"
+    formatted = format(value, "f")
+    return formatted.rstrip("0").rstrip(".") if "." in formatted else formatted
 
 
 @contextmanager
@@ -160,7 +182,7 @@ def consultar_produto(produto_id):
 
 def registrar_venda(itens, cliente_nome="Cliente Simulado", operacao_id=None):
     grouped = agrupar_itens(itens)
-    validar_cliente(cliente_nome)
+    cliente_nome = validar_cliente(cliente_nome)
 
     def execute(session):
         products = {}
@@ -224,7 +246,7 @@ def movimentar(tipo_item, item_id, tipo_movimentacao, quantidade, motivo, operac
         return {"alterado": True, "movimentacao_id": movement.id, "saldo": str(after)}
 
     return _operacao("movimentacao", {"tipo_item": tipo_item, "item_id": item_id,
-        "tipo_movimentacao": tipo_movimentacao, "quantidade": str(amount), "motivo": motivo.strip()}, operacao_id, execute)
+        "tipo_movimentacao": tipo_movimentacao, "quantidade": _decimal_canonico(amount), "motivo": motivo.strip()}, operacao_id, execute)
 
 
 def configurar_minimo(tipo_item, item_id, estoque_minimo):
@@ -237,14 +259,19 @@ def configurar_minimo(tipo_item, item_id, estoque_minimo):
 
 
 def cadastrar_materia_prima(codigo, nome, unidade_medida, estoque_minimo="0"):
+    codigo = codigo.strip().upper() if isinstance(codigo, str) else codigo
+    nome = nome.strip() if isinstance(nome, str) else nome
+    unidade_medida = unidade_medida.strip() if isinstance(unidade_medida, str) else unidade_medida
     for value, limit in [(codigo, 64), (nome, 100), (unidade_medida, 20)]:
         if not isinstance(value, str) or not value.strip() or len(value) > limit:
             raise EstoqueError("INVALID_INPUT", "Informe código, nome e unidade de medida válidos.")
     minimum = quantidade_item(estoque_minimo, "materia_prima")
     with _transacao() as session:
-        if session.scalar(select(MateriaPrima.id).where(MateriaPrima.codigo == codigo.strip())) is not None:
+        # Reconhece códigos equivalentes também nos cadastros legados, sem
+        # renomeá-los ou colidir com referências já existentes.
+        if any(existing.strip().upper() == codigo for existing in session.scalars(select(MateriaPrima.codigo))):
             raise EstoqueError("DUPLICATE_MATERIAL", "Código de matéria-prima já cadastrado.")
-        material = MateriaPrima(codigo=codigo.strip(), nome=nome.strip(), unidade_medida=unidade_medida.strip(),
+        material = MateriaPrima(codigo=codigo, nome=nome, unidade_medida=unidade_medida,
                                quantidade_disponivel=Decimal(0), estoque_minimo=minimum)
         session.add(material)
         session.flush()
@@ -252,15 +279,23 @@ def cadastrar_materia_prima(codigo, nome, unidade_medida, estoque_minimo="0"):
         return {"id": material.id}
 
 
-def visao_estoque():
+def sincronizar_alertas():
+    """Reconciliação explícita dos itens legados, separada das consultas GET."""
     with _transacao() as session:
-        products = session.scalars(select(Produto).where(Produto.ativo.is_(True)).order_by(Produto.nome)).all()
-        materials = session.scalars(select(MateriaPrima).where(MateriaPrima.ativo.is_(True)).order_by(MateriaPrima.nome)).all()
-        # Abrange também itens legados que já estavam no mínimo antes desta fase.
+        checked = 0
         for tipo, model in [("produto", Produto), ("materia_prima", MateriaPrima)]:
             for item in session.scalars(select(model)).all():
                 _atualizar_alerta(session, tipo, item)
-        session.flush()
+                checked += 1
+        return {"itens_verificados": checked}
+
+
+def visao_estoque():
+    # Sessão exclusiva de leitura: consultas não geram/resolvem alertas,
+    # não reservam a escrita nem atualizam os timestamps existentes.
+    with Session(db.engine) as session:
+        products = session.scalars(select(Produto).where(Produto.ativo.is_(True)).order_by(Produto.nome)).all()
+        materials = session.scalars(select(MateriaPrima).where(MateriaPrima.ativo.is_(True)).order_by(MateriaPrima.nome)).all()
         alerts = session.scalars(select(AlertaEstoque).order_by(AlertaEstoque.id.desc())).all()
         movements = session.scalars(select(MovimentacaoEstoque).order_by(MovimentacaoEstoque.id.desc()).limit(100)).all()
         return {

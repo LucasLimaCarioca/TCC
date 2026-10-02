@@ -1,10 +1,11 @@
 """Endpoints de estoque; validação e persistência pertencem ao serviço/agente."""
 
-from flask import Blueprint, current_app, jsonify, redirect, request, url_for
+from flask import Blueprint, current_app, jsonify, render_template, request
 
 from app.agents.base_agent import AgentUnavailable
 from app.services.estoque_client import EstoqueClient
-from app.services.estoque_service import EstoqueError
+from app.services.estoque_service import EstoqueError, resolver_chaves_operacao
+from app.models.produto import Produto
 
 
 estoque_bp = Blueprint("estoque", __name__)
@@ -19,7 +20,9 @@ def _dados():
 
 @estoque_bp.get("/estoque")
 def tela_estoque():
-    return redirect(url_for("produto.tela_produtos"))
+    estoque = EstoqueClient().executar("visao_estoque")
+    produtos = Produto.query.filter_by(ativo=True).order_by(Produto.categoria, Produto.sabor).all()
+    return render_template("estoque.html", titulo="Controle de Estoque", produtos=produtos, estoque=estoque)
 
 
 @estoque_bp.get("/api/estoque")
@@ -47,7 +50,7 @@ def movimentacoes_api():
     return jsonify(client.executar("movimentar", tipo_item=dados.get("tipo_item"),
         item_id=dados.get("item_id"), tipo_movimentacao=dados.get("tipo_movimentacao"),
         quantidade=dados.get("quantidade"), motivo=dados.get("motivo"),
-        operacao_id=request.headers.get("Idempotency-Key") or dados.get("operacao_id"))), 201
+        operacao_id=resolver_chaves_operacao(request.headers.get("Idempotency-Key"), dados.get("operacao_id")))), 201
 
 
 @estoque_bp.put("/api/estoque/minimo")
@@ -60,6 +63,11 @@ def estoque_minimo_api():
 @estoque_bp.get("/api/estoque/alertas")
 def alertas_api():
     return jsonify(EstoqueClient().executar("visao_estoque")["alertas"])
+
+
+@estoque_bp.post("/api/estoque/alertas/sincronizar")
+def sincronizar_alertas_api():
+    return jsonify(EstoqueClient().executar("sincronizar_alertas"))
 
 
 @estoque_bp.get("/api/estoque/risco/<int:produto_id>")

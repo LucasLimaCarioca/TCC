@@ -18,7 +18,7 @@ Na Fase 3, `AgentGateway` conecta o Flask ao runtime com os três agentes
 SPADE e servidor XMPP local. `AtendimentoAgent` mantém a fachada compatível
 para execução local sem runtime.
 Na Fase 4, `EstoqueAgent` passa a consultar disponibilidade e registrar vendas,
-baixas, movimentações e alertas em transações coordenadas. A tela de produtos
+baixas, movimentações e alertas em transações coordenadas. A tela `/estoque`
 inclui o controle manual de produtos acabados e matérias-primas.
 
 ## Arquitetura
@@ -116,13 +116,15 @@ TCC/
 │   │   └── venda_routes.py
 │   ├── services/
 │   │   ├── atendimento_service.py
+│   │   ├── estoque_client.py
+│   │   ├── estoque_service.py
 │   │   └── venda_service.py
 │   ├── static/
 │   │   └── css/
 │   │       └── style.css
 │   ├── templates/
 │   │   ├── base.html
-│   │   ├── produtos.html
+│   │   ├── estoque.html
 │   │   ├── simulacao_venda.html
 │   │   └── vendas.html
 │   ├── app.py
@@ -307,6 +309,8 @@ previsão permanecem para as fases seguintes.
 
 A Fase 4 acrescenta `OperacaoEstoque`, com recibo persistente de operação, e
 `MovimentacaoEstoque.venda_id`, único, para vincular a baixa à venda confirmada.
+A revisão `0006_integridade_operacoes` restringe o tipo do recibo a `venda` ou
+`movimentacao` e exige 64 caracteres no hash. A revisão 0005 permanece intacta.
 
 ## Agente de atendimento
 
@@ -378,6 +382,10 @@ Antes de salvar uma venda, o serviço:
 Itens repetidos do mesmo produto são somados antes de validar. Venda, baixa,
 movimentação, atualização de alerta e recibo da operação têm commit único.
 Repetir a mesma chave UUID e o mesmo pedido retorna as vendas já registradas.
+Pedidos vazios são rejeitados. Nomes de cliente são normalizados com `strip()`
+antes da validação, persistência e cálculo do hash. Conflitos de conteúdo com a
+mesma chave retornam HTTP 409 em vendas e movimentações; chaves diferentes no
+header e no corpo da mesma requisição retornam 400, sem alterar o banco.
 Veja contratos e execução no [guia da Fase 4](docs/FASE_4_ESTOQUE.md).
 
 ## Rotas e telas
@@ -409,34 +417,39 @@ Tela principal do atendimento. Possui:
 - histórico separado por cliente;
 - envio de mensagens ao agente.
 
-### Produtos e Estoque
+### Controle de Estoque
 
 Rota:
 
 ```text
-/produtos
+/estoque
 ```
 
 Arquivo:
 
 ```text
-app/routes/produto_routes.py
+app/routes/estoque_routes.py
 ```
 
 Template:
 
 ```text
-app/templates/produtos.html
+app/templates/estoque.html
 ```
 
-Tela unificada que mostra:
+Tela principal de controle que mostra:
 
 - produtos;
 - descrições;
 - preços;
 - quantidade disponível;
 - status do produto;
-- status de estoque.
+- status de estoque;
+- matérias-primas, mínimos configuráveis, alertas e movimentações.
+
+As consultas GET são somente leitura. Vendas e alterações de estoque/mínimo
+atualizam os alertas na própria transação; o botão **Sincronizar alertas** ou
+POST `/api/estoque/alertas/sincronizar` reconcilia explicitamente os itens legados.
 
 ### Vendas
 
@@ -460,15 +473,15 @@ app/templates/vendas.html
 
 Tela para registrar venda manualmente e listar as últimas vendas.
 
-### Estoque
+### Catálogo e compatibilidade
 
 Rota:
 
 ```text
-/estoque
+/produtos
 ```
 
-Essa rota redireciona para `/produtos`, pois a tela visual de produtos e estoque foi unificada.
+Essa rota redireciona para `/estoque`. O catálogo JSON permanece em `/api/produtos`.
 
 O endpoint JSON de estoque continua disponível em `/api/estoque`.
 
@@ -675,7 +688,8 @@ Funcionalidades já implementadas:
 - consulta e confirmação Atendimento → Estoque por XMPP real;
 - consulta Estoque → Previsão, com estado indisponível enquanto o modelo não existe;
 - repetição segura por chave de operação persistente;
-- tela unificada de produtos e estoque;
+- manutenção do pedido e da chave após falha de confirmação, com substituição ou cancelamento;
+- tela principal de estoque em `/estoque` e consultas GET somente leitura;
 - tela de vendas;
 - endpoints JSON para testes sem interface gráfica.
 

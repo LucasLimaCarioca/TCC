@@ -210,4 +210,5 @@ def test_minimo_zero_alerta_com_saldo_zero_e_inativo_resolve(app, catalogo):
         assert AlertaEstoque.query.filter_by(ativo=True).count() == 1
         db.session.get(Produto, product).ativo = False
         db.session.commit()
+        estoque.sincronizar_alertas()
         assert estoque.visao_estoque()["alertas"][0]["ativo"] is False

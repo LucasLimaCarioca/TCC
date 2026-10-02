@@ -27,7 +27,7 @@ def test_controle_estoque_com_materias_primas_e_historico(client, catalogo):
     assert client.post("/api/estoque/movimentacoes", json={"tipo_item": "materia_prima", "item_id": material, "tipo_movimentacao": "entrada", "quantidade": "1.25", "motivo": "Reposição fictícia"}).status_code == 201
     assert len(client.get("/api/estoque/movimentacoes").get_json()) == 2
     assert client.get("/api/estoque/materias-primas").get_json()[0]["quantidade_disponivel"] == "1.250000000"
-    page = client.get("/produtos")
+    page = client.get("/estoque")
     assert page.status_code == 200
     for text in ["Matérias-primas", "Ajuste do saldo final", "Histórico de movimentações", "Reposição fictícia", "Insumo fictício"]:
         assert text in page.get_data(as_text=True)
@@ -42,7 +42,9 @@ def test_api_venda_chave_idempotente(client, app, catalogo):
     assert first.status_code == 201
     repeat = client.post("/api/vendas", json=data, headers={"Idempotency-Key": key})
     assert repeat.get_json() == first.get_json()
-    assert client.post("/api/vendas", json={**data, "quantidade": 3}, headers={"Idempotency-Key": key}).status_code == 400
+    conflict = client.post("/api/vendas", json={**data, "quantidade": 3}, headers={"Idempotency-Key": key})
+    assert conflict.status_code == 409
+    assert conflict.get_json()["code"] == "IDEMPOTENCY_CONFLICT"
     with app.app_context():
         assert Venda.query.count() == MovimentacaoEstoque.query.count() == 1
         assert db.session.get(Produto, product).quantidade_disponivel == 18

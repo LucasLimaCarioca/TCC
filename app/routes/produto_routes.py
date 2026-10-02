@@ -1,7 +1,6 @@
-from flask import Blueprint, jsonify, render_template
+from flask import Blueprint, jsonify, redirect, url_for
 
 from app.models.produto import Produto
-from app.services.estoque_client import EstoqueClient
 
 
 # Blueprint das rotas de catálogo de produtos.
@@ -27,23 +26,8 @@ def produto_para_dict(produto):
 
 @produto_bp.route("/produtos")
 def tela_produtos():
-    estoque = EstoqueClient().executar("visao_estoque")
-    # A tela mostra apenas produtos ativos.
-    # Produtos antigos/inativos podem continuar no banco para preservar histórico.
-    produtos = Produto.query.filter_by(
-        ativo=True
-    ).order_by(
-        Produto.categoria,
-        Produto.sabor
-    ).all()
-
-    # Renderiza a tela unificada de Produtos e Estoque.
-    return render_template(
-        "produtos.html",
-        titulo="Produtos e Estoque",
-        produtos=produtos,
-        estoque=estoque
-    )
+    # Preserva links anteriores; a API do catálogo permanece nesta Blueprint.
+    return redirect(url_for("estoque.tela_estoque"))
 
 
 @produto_bp.route("/api/produtos")
