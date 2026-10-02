@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Obter código
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Configurar Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Verificar proteção dos dados
+        run: python3 scripts/check_private_data.py
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Instalar dependências
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Verificar dependências
+        run: python -m pip check
+
+      - name: Validar JavaScript
+        run: node --check app/static/js/estoque.js
+
+      - name: Executar suíte completa
+        run: python -m pytest -q
+
+  spade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Obter código
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Configurar Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Verificar proteção dos dados
+        run: python3 scripts/check_private_data.py
+
+      - name: Instalar dependências
+        run: python -m pip install -r requirements-dev.txt
+
+      # Seleção documentada em docs/FASE_4_ESTOQUE.md; XMPP local e dados fictícios.
+      - name: Executar testes com SPADE e XMPP reais
+        run: >-
+          python -m pytest -q --spade
+          tests/test_regressao_tcc_i.py
+          tests/test_atendimento_contexto.py
+          tests/test_atendimento_caracterizacao.py
+          tests/test_estoque_http.py
+          tests/test_correcoes_estoque.py
+          tests/test_estoque_service.py::test_resposta_perdida_mantem_contexto_para_repeticao_segura
