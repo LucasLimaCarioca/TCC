@@ -1,5 +1,10 @@
 # Fase 3 — Infraestrutura SPADE/XMPP
 
+Este documento registra o escopo e os resultados da Fase 3. A disponibilidade,
+a venda/baixa transacional e a repetição segura por chave persistente já foram
+implementadas na [Fase 4](FASE_4_ESTOQUE.md); `NOT_IMPLEMENTED` permanece apenas
+para o agente de Previsão. A nova revisão do banco é `0005_operacoes_estoque`.
+
 ## Escopo implementado
 
 Os três agentes são subclasses de `spade.agent.Agent`, com conexão ao servidor

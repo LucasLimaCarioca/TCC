@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, render_template
 
 from app.models.produto import Produto
+from app.services.estoque_client import EstoqueClient
 
 
 # Blueprint das rotas de catálogo de produtos.
@@ -19,12 +20,14 @@ def produto_para_dict(produto):
         "preco": produto.preco,
         "descricao": produto.descricao,
         "quantidade_disponivel": produto.quantidade_disponivel,
+        "estoque_minimo": produto.estoque_minimo,
         "ativo": produto.ativo
     }
 
 
 @produto_bp.route("/produtos")
 def tela_produtos():
+    estoque = EstoqueClient().executar("visao_estoque")
     # A tela mostra apenas produtos ativos.
     # Produtos antigos/inativos podem continuar no banco para preservar histórico.
     produtos = Produto.query.filter_by(
@@ -38,7 +41,8 @@ def tela_produtos():
     return render_template(
         "produtos.html",
         titulo="Produtos e Estoque",
-        produtos=produtos
+        produtos=produtos,
+        estoque=estoque
     )
 
 

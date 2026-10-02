@@ -1,6 +1,7 @@
 """Coordenação síncrona do atendimento, independente do framework do agente."""
 
 import json
+from uuid import uuid4
 
 from app.database import db
 from app.dialogue.intent_parser import IntentParser
@@ -8,16 +9,17 @@ from app.dialogue.order_parser import OrderParser
 from app.dialogue.response_builder import ResponseBuilder
 from app.models.contexto_conversa import ContextoConversa
 from app.models.produto import Produto
-from app.services.venda_service import registrar_venda, registrar_vendas_multiplas
+from app.services.estoque_client import EstoqueClient
 
 
 class AtendimentoService:
     """Usa a sessão do app ativo; todo contexto de cliente permanece no banco."""
 
-    def __init__(self):
+    def __init__(self, estoque=None):
         self.intent_parser = IntentParser()
         self.order_parser = OrderParser()
         self.responses = ResponseBuilder()
+        self.estoque = estoque or EstoqueClient()
 
     def responder(self, mensagem, cliente_nome="Cliente Simulado"):
         # O contexto persistido tem prioridade sobre uma nova intenção.
@@ -74,24 +76,24 @@ class AtendimentoService:
         if produto is None:
             return self.responses.produto_nao_encontrado()
 
-        # A regra de negócio de estoque e persistência fica em venda_service.py.
-        sucesso, mensagem, venda = registrar_venda(
-            produto.id,
-            quantidade,
+        # A autoridade de estoque registra a venda e a baixa na mesma transação.
+        sucesso, mensagem, vendas = self.estoque.registrar_pedido(
+            [{"produto_id": produto.id, "quantidade": quantidade}],
             cliente_nome=cliente_nome
         )
 
         if not sucesso:
             return mensagem
 
-        return self.responses.venda_registrada(venda)
+        return self.responses.venda_registrada(vendas[0])
 
-    def registrar_pedido(self, itens, cliente_nome="Cliente Simulado"):
+    def registrar_pedido(self, itens, cliente_nome="Cliente Simulado", operacao_id=None):
         # Registra todos os itens confirmados pelo cliente em uma única operação.
         # "itens" vem do contexto salvo após o agente montar o resumo do pedido.
-        sucesso, mensagem, vendas = registrar_vendas_multiplas(
+        sucesso, mensagem, vendas = self.estoque.registrar_pedido(
             itens,
-            cliente_nome=cliente_nome
+            cliente_nome=cliente_nome,
+            operacao_id=operacao_id
         )
 
         if not sucesso:
@@ -121,7 +123,13 @@ class AtendimentoService:
     def _responder_disponibilidade(self, mensagem):
         produtos = self._buscar_produtos_ativos()
         especifico = self.order_parser.encontrar_produto(mensagem, produtos)
-        return self.responses.disponibilidade(produtos, especifico)
+        selecionados = [especifico] if especifico else produtos
+        saldos = {}
+        if selecionados:
+            result = self.estoque.consultar_disponibilidade([
+                {"produto_id": p.id, "quantidade": 1} for p in selecionados])
+            saldos = {row["produto_id"]: row["disponivel"] for row in result["items"]}
+        return self.responses.disponibilidade(produtos, especifico, saldos)
 
     def _processar_pedido(self, mensagem, cliente_nome):
         produtos = self._buscar_produtos_ativos()
@@ -140,11 +148,20 @@ class AtendimentoService:
         return self.responses.confirmacao_pedido(itens)
 
     def _validar_estoque_itens(self, itens):
-        # A venda revalida o saldo na confirmação, como no protótipo.
+        # Soma itens repetidos e consulta a autoridade de estoque. A confirmação
+        # revalida na transação; esta consulta não reserva o saldo.
+        quantidades = {}
         for item in itens:
-            produto = item["produto"]
-            if produto.quantidade_disponivel < item["quantidade"]:
-                return self.responses.estoque_insuficiente(produto)
+            key = item["produto"].id
+            quantidades[key] = quantidades.get(key, 0) + item["quantidade"]
+        positivos = [{"produto_id": key, "quantidade": value} for key, value in quantidades.items() if value > 0]
+        if positivos:
+            result = self.estoque.consultar_disponibilidade(positivos)
+            saldos = {row["produto_id"]: row["disponivel"] for row in result["items"]}
+            for item in itens:
+                produto = item["produto"]
+                if quantidades[produto.id] > 0 and saldos[produto.id] < quantidades[produto.id]:
+                    return self.responses.estoque_insuficiente(produto, saldos[produto.id])
         return None
 
     def _buscar_contexto(self, cliente_nome):
@@ -168,6 +185,7 @@ class AtendimentoService:
         contexto.etapa = "aguardando_confirmacao"
         contexto.produto_id = itens[0]["produto"].id
         contexto.quantidade = itens[0]["quantidade"]
+        contexto.operacao_id = str(uuid4())
         contexto.itens_json = json.dumps([
             {
                 "produto_id": item["produto"].id,
@@ -179,7 +197,7 @@ class AtendimentoService:
         db.session.commit()
 
     def _limpar_contexto(self, contexto):
-        # Remove o pedido ao cancelar ou antes de tentar registrar a confirmação.
+        # Remove ao cancelar ou após receber o resultado da confirmação.
         db.session.delete(contexto)
         db.session.commit()
 
@@ -229,15 +247,16 @@ class AtendimentoService:
             return self.responses.cancelamento()
 
         if self.intent_parser.afirmativa(mensagem):
-            # Confirmação positiva: carrega os itens salvos no contexto,
-            # limpa o contexto e registra o pedido.
             itens = self._carregar_itens_contexto(contexto)
+            if contexto.operacao_id is None:
+                contexto.operacao_id = str(uuid4())
+                db.session.commit()
+            resposta = self.registrar_pedido(
+                itens, cliente_nome=cliente_nome, operacao_id=contexto.operacao_id)
+            # Se o transporte falhar, a exceção mantém o contexto e a chave para
+            # uma repetição segura, inclusive se o Estoque já confirmou a venda.
             self._limpar_contexto(contexto)
-
-            return self.registrar_pedido(
-                itens,
-                cliente_nome=cliente_nome
-            )
+            return resposta
 
         if self.intent_parser.interpretar(mensagem) == "registrar_venda":
             # Se o cliente mandar outro pedido antes de confirmar, substituímos o contexto.

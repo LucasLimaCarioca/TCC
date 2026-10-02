@@ -49,4 +49,7 @@ class ContextoConversa(db.Model):
         onupdate=datetime.utcnow
     )
 
+    # Mantida ao repetir confirmação; novo pedido recebe nova identidade.
+    operacao_id = db.Column(db.String(36), nullable=True)
+
     produto = db.relationship("Produto")

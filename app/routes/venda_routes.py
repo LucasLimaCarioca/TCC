@@ -15,6 +15,8 @@ from app.models.historico_conversa import HistoricoConversa
 from app.models.produto import Produto
 from app.models.venda import Venda
 from app.services.venda_service import registrar_venda
+from app.services.estoque_service import EstoqueError
+from uuid import uuid4
 
 # Blueprint agrupa as rotas relacionadas ao atendimento e às vendas.
 # Ele é registrado em app/app.py dentro da função create_app().
@@ -29,6 +31,17 @@ agent = AtendimentoAgent()
 
 def atendimento_gateway():
     return current_app.extensions.get("agent_gateway", agent)
+
+
+def inteiro_recebido(value):
+    if type(value) is int:
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            pass
+    raise EstoqueError("INVALID_INPUT", "Informe produto e quantidade inteiros.")
 
 
 @venda_bp.get("/api/agentes/status")
@@ -169,8 +182,8 @@ def tela_vendas():
     if request.method == "POST":
         # O formulário envia produto_id, quantidade e nome do cliente.
         # A conversão para int é necessária porque dados de formulário chegam como texto.
-        produto_id = int(request.form["produto_id"])
-        quantidade = int(request.form["quantidade"])
+        produto_id = inteiro_recebido(request.form.get("produto_id"))
+        quantidade = inteiro_recebido(request.form.get("quantidade"))
         cliente_nome = request.form.get("cliente_nome") or "Cliente Simulado"
 
         # A regra de negócio fica no service, não na rota.
@@ -178,7 +191,8 @@ def tela_vendas():
         sucesso, mensagem_retorno, venda = registrar_venda(
             produto_id,
             quantidade,
-            cliente_nome=cliente_nome
+            cliente_nome=cliente_nome,
+            operacao_id=request.form.get("operacao_id")
         )
 
         if sucesso:
@@ -205,7 +219,8 @@ def tela_vendas():
         produtos=produtos,
         vendas=vendas,
         mensagem=mensagem,
-        erro=erro
+        erro=erro,
+        operacao_id=str(uuid4())
     )
 
 
@@ -234,17 +249,20 @@ def listar_vendas_api():
 @venda_bp.route("/api/vendas", methods=["POST"])
 def cadastrar_venda_api():
     # Permite cadastrar venda tanto via JSON quanto via form data.
-    dados = request.get_json(silent=True) or request.form
+    dados = request.get_json(silent=True) if request.is_json else request.form
+    if dados is None or not hasattr(dados, "get"):
+        raise EstoqueError("INVALID_INPUT", "Informe um pedido válido.")
 
-    produto_id = int(dados["produto_id"])
-    quantidade = int(dados["quantidade"])
+    produto_id = inteiro_recebido(dados.get("produto_id"))
+    quantidade = inteiro_recebido(dados.get("quantidade"))
     cliente_nome = dados.get("cliente_nome") or "Cliente Simulado"
 
     # Reutiliza a mesma regra da tela /vendas.
     sucesso, mensagem, venda = registrar_venda(
         produto_id,
         quantidade,
-        cliente_nome=cliente_nome
+        cliente_nome=cliente_nome,
+        operacao_id=request.headers.get("Idempotency-Key") or dados.get("operacao_id")
     )
 
     # Erros de validação, como estoque insuficiente, retornam HTTP 400.

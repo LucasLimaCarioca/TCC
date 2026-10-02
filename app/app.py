@@ -1,10 +1,16 @@
 from flask import Flask
 from app.database import db
+from decimal import Decimal
 
 def create_app(test_config=None):
 
     # Cria a aplicacao Flask. O __name__ ajuda o Flask a encontrar templates e arquivos static.
     app = Flask(__name__)
+
+    @app.template_filter("quantidade")
+    def formatar_quantidade(value):
+        formatted = format(Decimal(str(value)), "f")
+        return formatted.rstrip("0").rstrip(".") if "." in formatted else formatted
 
     # Banco SQLite local usado pelo prototipo.
     # No Flask, sqlite:///sorvetes.db fica dentro da pasta instance/.
@@ -34,6 +40,12 @@ def create_app(test_config=None):
     app.register_blueprint(produto_bp)
 
     from app.agents.base_agent import AgentUnavailable, RemoteFailure
+    from app.services.estoque_service import EstoqueError
+
+    @app.errorhandler(EstoqueError)
+    def estoque_invalido(error):
+        status = 409 if error.code in {"IDEMPOTENCY_CONFLICT", "DUPLICATE_MATERIAL"} else 400
+        return {"erro": str(error), "code": error.code}, status
 
     @app.errorhandler(AgentUnavailable)
     def runtime_indisponivel(error):

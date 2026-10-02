@@ -10,7 +10,7 @@ from app.agents.protocol import (BAIXA_VENDA, DISPONIBILIDADE, PING, PREVISAO,
 @pytest.mark.parametrize(("ontology", "payload"), [
     (PING, {}),
     (DISPONIBILIDADE, {"items": [{"produto_id": 1, "quantidade": 2}]}),
-    (BAIXA_VENDA, {"cliente_nome": "Cliente Fictício", "items": [{"produto_id": 1, "quantidade": 2}]}),
+    (BAIXA_VENDA, {"cliente_nome": "Cliente Fictício", "operacao_id": "00000000-0000-0000-0000-000000000001", "items": [{"produto_id": 1, "quantidade": 2}]}),
     (PREVISAO, {"produto_id": 1, "granularidade": "diaria", "horizonte_dias": 7}),
 ])
 def test_roundtrip(ontology, payload):

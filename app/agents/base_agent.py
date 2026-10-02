@@ -103,14 +103,23 @@ class BaseAgent(Agent):
             reply = encode(sender, PING, {"agent": self.role, "status": "ok"},
                            "inform", envelope.thread)
         else:
-            reply = failure(sender, envelope.ontology, envelope.thread, "NOT_IMPLEMENTED",
-                            "Operação prevista para uma fase posterior.")
+            reply = await self.handle_request(sender, envelope)
         await self.send_message(reply)
+
+    async def handle_request(self, sender, envelope):
+        return failure(sender, envelope.ontology, envelope.thread, "NOT_IMPLEMENTED",
+                       "Operação prevista para uma fase posterior.")
 
     async def stop(self):
         for _, _, future in self.pending.values():
             if not future.done():
                 future.set_exception(AgentUnavailable("Agente encerrado."))
-        await super().stop()
-        if self.client and not self.is_alive() and self.client.is_connected():
-            await self.client.disconnect()
+        try:
+            await super().stop()
+        finally:
+            # Disconnect pode expirar se o servidor caiu antes de responder.
+            self._alive.clear()
+            if self.client:
+                self.client.cancel_connection_attempt()
+                if self.client.is_connected():
+                    self.client.abort()

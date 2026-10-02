@@ -8,9 +8,10 @@
 
         <div class="section-header">
             <h1>Produtos e Estoque</h1>
-            <p>Catalogo e disponibilidade consultados diretamente do banco SQLite.</p>
+            <p>Produtos acabados, matérias-primas, movimentações e alertas de estoque.</p>
         </div>
 
+        <div class="stock-table-wrap">
         <table class="data-table">
 
             <thead>
@@ -21,6 +22,7 @@
                     <th>Descricao</th>
                     <th>Preco</th>
                     <th>Disponivel</th>
+                    <th>Mínimo</th>
                     <th>Status</th>
                     <th>Estoque</th>
                 </tr>
@@ -28,16 +30,17 @@
 
             <tbody>
                 {% for produto in produtos %}
-                    <tr class="{% if produto.quantidade_disponivel <= 5 %}low-stock{% else %}ok-stock{% endif %}">
+                    <tr class="{% if produto.quantidade_disponivel <= produto.estoque_minimo %}low-stock{% else %}ok-stock{% endif %}">
                         <td>{{ produto.categoria }}</td>
                         <td>{{ produto.sabor }}</td>
                         <td>{{ produto.nome }}</td>
-                        <td>{{ produto.descricao }}</td>
+                        <td>{{ produto.descricao or '—' }}</td>
                         <td>R$ {{ "%.2f"|format(produto.preco) }}</td>
                         <td>{{ produto.quantidade_disponivel }}</td>
+                        <td>{{ produto.estoque_minimo }}</td>
                         <td>{% if produto.ativo %}Ativo{% else %}Inativo{% endif %}</td>
                         <td>
-                            {% if produto.quantidade_disponivel <= 5 %}
+                            {% if produto.quantidade_disponivel <= produto.estoque_minimo %}
                                 Baixo
                             {% else %}
                                 OK
@@ -48,9 +51,91 @@
             </tbody>
 
         </table>
+        </div>
 
     </section>
 
+    <p id="estoque-feedback" role="status" aria-live="polite"></p>
+
+    <section class="content-panel">
+        <h2>Matérias-primas</h2>
+        <div class="stock-table-wrap">
+        <table class="data-table">
+            <thead><tr><th>Código</th><th>Nome</th><th>Unidade</th><th>Disponível</th><th>Mínimo</th><th>Estoque</th></tr></thead>
+            <tbody>
+                {% for item in estoque.materias_primas %}
+                <tr>
+                    <td>{{ item.codigo }}</td><td>{{ item.nome }}</td><td>{{ item.unidade_medida }}</td>
+                    <td>{{ item.quantidade_disponivel|quantidade }}</td><td>{{ item.estoque_minimo|quantidade }}</td>
+                    <td>{% if item.quantidade_disponivel|float <= item.estoque_minimo|float %}Baixo{% else %}OK{% endif %}</td>
+                </tr>
+                {% else %}<tr><td colspan="6">Nenhuma matéria-prima cadastrada.</td></tr>{% endfor %}
+            </tbody>
+        </table>
+        </div>
+        <form id="materia-form" class="stock-form">
+            <h3>Cadastrar matéria-prima</h3>
+            <label>Código <input name="codigo" maxlength="64" required></label>
+            <label>Nome <input name="nome" maxlength="100" required></label>
+            <label>Unidade de medida <input name="unidade_medida" maxlength="20" placeholder="kg, L, unidade" required></label>
+            <label>Estoque mínimo <input name="estoque_minimo" type="number" min="0" step="0.000000001" value="0" required></label>
+            <button type="submit">Cadastrar com saldo zero</button>
+        </form>
+    </section>
+
+    {% macro selecionar_item() %}
+    <label>Item
+        <select name="item" required>
+            {% for produto in produtos %}<option value="produto:{{ produto.id }}">Produto — {{ produto.nome }}</option>{% endfor %}
+            {% for item in estoque.materias_primas %}<option value="materia_prima:{{ item.id }}">Matéria-prima — {{ item.nome }} ({{ item.unidade_medida }})</option>{% endfor %}
+        </select>
+    </label>
+    {% endmacro %}
+
+    <section class="content-panel">
+        <h2>Movimentar estoque</h2>
+        <form id="movimentacao-form" class="stock-form">
+            {{ selecionar_item() }}
+            <label>Operação <select name="tipo_movimentacao"><option value="entrada">Entrada</option><option value="saida">Saída</option><option value="ajuste">Ajuste do saldo final</option></select></label>
+            <label><span id="quantidade-label">Quantidade da movimentação</span> <input name="quantidade" type="number" min="0" step="1" required></label>
+            <label>Motivo <input name="motivo" maxlength="500" required></label>
+            <p>No ajuste, informe o saldo final desejado. Produtos usam unidades inteiras; matérias-primas usam a unidade cadastrada.</p>
+            <button type="submit">Registrar movimentação</button>
+        </form>
+        <form id="minimo-form" class="stock-form">
+            <h3>Configurar estoque mínimo</h3>
+            {{ selecionar_item() }}
+            <label>Mínimo <input name="estoque_minimo" type="number" min="0" step="1" required></label>
+            <button type="submit">Salvar mínimo</button>
+        </form>
+    </section>
+
+    <section class="content-panel">
+        <h2>Alertas de estoque</h2>
+        <ul>{% for alerta in estoque.alertas if alerta.ativo %}<li>{{ alerta.mensagem }}</li>{% else %}<li>Nenhum alerta ativo.</li>{% endfor %}</ul>
+        <form id="risco-form" class="stock-form">
+            <h3>Consultar risco futuro</h3>
+            <label>Produto <select name="produto_id" required>{% for produto in produtos %}<option value="{{ produto.id }}">{{ produto.nome }}</option>{% endfor %}</select></label>
+            <button type="submit">Consultar próximos 7 dias</button>
+        </form>
+        <p id="risco-feedback" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="content-panel">
+        <h2>Histórico de movimentações</h2>
+        <p>As 100 movimentações mais recentes. Datas em UTC.</p>
+        <div class="stock-table-wrap">
+        <table class="data-table">
+            <thead><tr><th>Data</th><th>Item</th><th>Operação</th><th>Quantidade</th><th>Saldo anterior</th><th>Saldo final</th><th>Venda</th><th>Motivo</th></tr></thead>
+            <tbody>{% for movimento in estoque.movimentacoes %}
+                <tr><td>{{ movimento.criado_em[:19]|replace('T', ' ') }}</td><td>{{ movimento.nome }}</td><td>{{ movimento.tipo_movimentacao }}</td><td>{{ movimento.quantidade|quantidade }}</td><td>{{ movimento.saldo_anterior|quantidade }}</td><td>{{ movimento.saldo_posterior|quantidade }}</td><td>{{ movimento.venda_id or '—' }}</td><td>{{ movimento.motivo }}</td></tr>
+            {% else %}<tr><td colspan="8">Nenhuma movimentação registrada.</td></tr>{% endfor %}</tbody>
+        </table>
+        </div>
+    </section>
+
 </main>
+
+<script src="{{ url_for('static', filename='js/estoque.js') }}" defer></script>
 
 {% endblock %}

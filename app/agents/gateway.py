@@ -1,6 +1,7 @@
 """Ponte síncrona para Flask; as corrotinas executam no loop dedicado do runtime."""
 
 from app.agents.protocol import BAIXA_VENDA, DISPONIBILIDADE, PING, PREVISAO
+from uuid import uuid4
 
 
 class AgentGateway:
@@ -20,9 +21,17 @@ class AgentGateway:
     def consultar_disponibilidade(self, items):
         return self.request("atendimento", "estoque", DISPONIBILIDADE, {"items": items})
 
-    def baixar_estoque(self, items, cliente_nome):
+    def baixar_estoque(self, items, cliente_nome, operacao_id=None):
         return self.request("atendimento", "estoque", BAIXA_VENDA,
-                            {"items": items, "cliente_nome": cliente_nome})
+                            {"items": items, "cliente_nome": cliente_nome,
+                             "operacao_id": operacao_id or str(uuid4())})
+
+    def executar_estoque(self, command, **kwargs):
+        return self.runtime.call(lambda: self.runtime.agents["estoque"].executar(command, **kwargs))
+
+    def consultar_risco(self, produto_id, granularidade="diaria", horizonte_dias=7):
+        return self.runtime.call(lambda: self.runtime.agents["estoque"].consultar_risco(
+            produto_id, granularidade, horizonte_dias, self.runtime.config.request_timeout))
 
     def consultar_previsao(self, produto_id, granularidade="diaria", horizonte_dias=7):
         return self.request("estoque", "previsao", PREVISAO, {

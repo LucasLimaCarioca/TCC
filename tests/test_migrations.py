@@ -63,7 +63,7 @@ def test_banco_vazio_cria_schema_equivalente_aos_modelos(migration_project):
     root, _, app = migration_project
     with app.app_context():
         result = upgrade_database(project_root=root)
-        assert result == {"updated": True, "revision": "0004_produto_saldo", "backup": None}
+        assert result == {"updated": True, "revision": "0005_operacoes_estoque", "backup": None}
         with db.engine.connect() as connection:
             assert compare_metadata(MigrationContext.configure(connection), db.metadata) == []
             assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
@@ -86,8 +86,12 @@ def test_migracao_preserva_todos_registros_do_baseline_e_backup(migration_projec
             if table == "produtos":
                 assert [row[:8] for row in after[table]] == records
                 assert after[table][0][8:] == (None, 0)
+            elif table == "contextos_conversa":
+                assert [row[:-1] for row in after[table]] == records
+                assert all(row[-1] is None for row in after[table])
             else:
                 assert after[table] == records
+        assert after["operacoes_estoque"] == []
         assert upgrade_database(project_root=root)["updated"] is False
         assert len(list((root / "data/artifacts/backups").glob("*.db"))) == 1
         sucesso, _, venda = registrar_venda(7, 1, "Cliente Ficticio")
@@ -159,7 +163,7 @@ def test_cli_upgrade_current_e_create_db_compativeis(migration_project, monkeypa
     assert result.exit_code == 0, result.output
     result = app.test_cli_runner().invoke(args=["db", "current"])
     assert result.exit_code == 0
-    assert "0004_produto_saldo" in result.output
+    assert "0005_operacoes_estoque" in result.output
     monkeypatch.setattr("app.app.create_app", lambda: app)
     with pytest.raises(SystemExit) as result:
         runpy.run_path(str(ROOT / "create_db.py"), run_name="__main__")
@@ -187,7 +191,12 @@ def test_novo_check_preserva_movimentacoes_indices_e_referencias(migration_proje
         after = snapshot(path)
         for table in before:
             if table != "alembic_version":
-                assert after[table] == before[table]
+                if table in {"contextos_conversa", "movimentacoes_estoque"}:
+                    assert [row[:-1] for row in after[table]] == before[table]
+                    assert all(row[-1] is None for row in after[table])
+                else:
+                    assert after[table] == before[table]
+        assert after["operacoes_estoque"] == []
         with db.engine.connect() as connection:
             inspector = sa.inspect(connection)
             checks = {c["name"] for c in inspector.get_check_constraints("movimentacoes_estoque")}
@@ -195,7 +204,7 @@ def test_novo_check_preserva_movimentacoes_indices_e_referencias(migration_proje
             assert {i["name"] for i in inspector.get_indexes("movimentacoes_estoque")} == {
                 "ix_movimentacoes_estoque_produto_id", "ix_movimentacoes_estoque_materia_prima_id",
             }
-            assert len(inspector.get_foreign_keys("movimentacoes_estoque")) == 2
+            assert len(inspector.get_foreign_keys("movimentacoes_estoque")) == 3
             assert connection.exec_driver_sql("PRAGMA foreign_key_check").all() == []
 
 
@@ -230,9 +239,13 @@ def test_check_saldo_preserva_tabela_pai_e_todas_referencias(migration_project, 
         result = upgrade_database(project_root=root)
         assert snapshot(result["backup"]) == before
         after = snapshot(path)
-        assert {k: v for k, v in after.items() if k != "alembic_version"} == {
+        comparable = {k: ([row[:-1] for row in v] if k in {"contextos_conversa", "movimentacoes_estoque"} else v)
+                      for k, v in after.items() if k not in {"alembic_version", "operacoes_estoque"}}
+        assert comparable == {
             k: v for k, v in before.items() if k != "alembic_version"
         }
+        assert all(row[-1] is None for table in ["contextos_conversa", "movimentacoes_estoque"] for row in after[table])
+        assert after["operacoes_estoque"] == []
         with db.engine.connect() as connection:
             inspector = sa.inspect(connection)
             assert {c["name"] for c in inspector.get_check_constraints("produtos")} == {"ck_produto_saldo", "ck_produto_minimo"}

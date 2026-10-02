@@ -57,10 +57,12 @@ def validate_payload(ontology, performative, payload):
                  set(payload) == {"agent", "status"} and
                  payload["agent"] in JIDS and payload["status"] == "ok")
     elif ontology in {DISPONIBILIDADE, BAIXA_VENDA} and performative == "request":
-        expected = {"items"} if ontology == DISPONIBILIDADE else {"items", "cliente_nome"}
+        expected = {"items"} if ontology == DISPONIBILIDADE else {"items", "cliente_nome", "operacao_id"}
         _require(set(payload) == expected)
         if ontology == BAIXA_VENDA:
             _require(isinstance(payload["cliente_nome"], str) and bool(payload["cliente_nome"].strip()))
+            _require(isinstance(payload["operacao_id"], str))
+            UUID(payload["operacao_id"])
         _require(type(payload["items"]) is list and bool(payload["items"]))
         for item in payload["items"]:
             _require(type(item) is dict and set(item) == {"produto_id", "quantidade"})
@@ -75,9 +77,12 @@ def validate_payload(ontology, performative, payload):
             _require(item["ok"] == (item["disponivel"] >= item["solicitado"]))
         _require(payload["available"] == all(item["ok"] for item in payload["items"]))
     elif ontology == BAIXA_VENDA:
-        _require(set(payload) == {"success", "movimentacoes"} and payload["success"] is True)
+        _require(set(payload) == {"success", "movimentacoes", "vendas"} and payload["success"] is True)
         _require(type(payload["movimentacoes"]) is list and bool(payload["movimentacoes"]))
         _require(all(_integer(value) for value in payload["movimentacoes"]))
+        _require(type(payload["vendas"]) is list and bool(payload["vendas"]))
+        _require(all(_integer(value) for value in payload["vendas"]))
+        _require(len(payload["vendas"]) == len(payload["movimentacoes"]))
     elif ontology == PREVISAO and performative == "request":
         _require(set(payload) == {"produto_id", "granularidade", "horizonte_dias"})
         _require(_integer(payload["produto_id"]) and _integer(payload["horizonte_dias"]))

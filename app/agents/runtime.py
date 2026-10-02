@@ -72,6 +72,7 @@ class AgentRuntime:
                 from app.agents.atendimento_agent import AtendimentoSPADEAgent
                 from app.agents.estoque_agent import EstoqueAgent
                 from app.agents.previsao_agent import PrevisaoAgent
+                from app.agents.gateway import AgentGateway
 
                 # SPADE Container é singleton; vincular ao loop desta execução.
                 policy = asyncio.get_event_loop_policy()
@@ -83,8 +84,9 @@ class AgentRuntime:
                 port = self.config.client_port
                 passwords = self.config.passwords
                 self.agents = {
-                    "atendimento": AtendimentoSPADEAgent(passwords["atendimento"], self.app, port, self._audit),
-                    "estoque": EstoqueAgent(passwords["estoque"], port, self._audit),
+                    "atendimento": AtendimentoSPADEAgent(passwords["atendimento"], self.app, port, self._audit,
+                                                         gateway=AgentGateway(self)),
+                    "estoque": EstoqueAgent(passwords["estoque"], self.app, port, self._audit),
                     "previsao": PrevisaoAgent(passwords["previsao"], port, self._audit),
                 }
                 for agent in self.agents.values():

@@ -17,6 +17,9 @@ separado em um serviço de aplicação e módulos de diálogo determinísticos.
 Na Fase 3, `AgentGateway` conecta o Flask ao runtime com os três agentes
 SPADE e servidor XMPP local. `AtendimentoAgent` mantém a fachada compatível
 para execução local sem runtime.
+Na Fase 4, `EstoqueAgent` passa a consultar disponibilidade e registrar vendas,
+baixas, movimentações e alertas em transações coordenadas. A tela de produtos
+inclui o controle manual de produtos acabados e matérias-primas.
 
 ## Arquitetura
 
@@ -32,7 +35,7 @@ AtendimentoSPADEAgent ↔ EstoqueAgent ↔ PrevisaoAgent
    ↓
 AtendimentoService → IntentParser / OrderParser / ResponseBuilder
    ↓
-Serviço de vendas
+EstoqueClient → EstoqueAgent / EstoqueService
    ↓
 Modelos SQLAlchemy
    ↓
@@ -48,13 +51,13 @@ Rota Flask recebe o texto
    ↓
 AtendimentoService interpreta a intenção com IntentParser
    ↓
-Serviço consulta produtos/estoque e usa OrderParser para identificar itens
+Serviço identifica itens com OrderParser e consulta disponibilidade no Estoque
    ↓
 Se for pedido, salva contexto e pede confirmação
    ↓
 Cliente confirma
    ↓
-Sistema registra vendas e atualiza estoque
+Estoque registra venda, baixa, movimentação, alerta e chave de operação juntos
    ↓
 Histórico da conversa é salvo por cliente
 ```
@@ -220,7 +223,8 @@ Campos principais:
 - `codigo_externo` (opcional e único, preserva zeros à esquerda)
 - `ativo`
 
-O estoque simplificado fica dentro da própria tabela de produtos.
+O saldo de produto acabado fica em `produtos`; matérias-primas têm cadastro
+próprio. As alterações operacionais geram `MovimentacaoEstoque` auditável.
 Produtos com o mesmo sabor podem existir em categorias diferentes, por exemplo `caixa de 10L - chocolate` e `caixa de 5L - chocolate`.
 
 ### `Cliente`
@@ -265,6 +269,7 @@ Campos principais:
 - `quantidade`
 - `itens_json`
 - `atualizado_em`
+- `operacao_id`, chave persistente para confirmação segura após timeout
 
 O campo `itens_json` permite armazenar pedidos com múltiplos produtos antes da confirmação.
 
@@ -297,7 +302,11 @@ Cada item vendido é salvo como um registro de venda. Um pedido com dois produto
   com o conteúdo do payload omitido pelo runtime.
 
 Nesta fase foram criadas estruturas e restrições de integridade. As rotinas de
-movimentação, alertas, importação e previsão serão implementadas nas fases seguintes.
+movimentação e alertas imediatos foram implementadas na Fase 4; importação e
+previsão permanecem para as fases seguintes.
+
+A Fase 4 acrescenta `OperacaoEstoque`, com recibo persistente de operação, e
+`MovimentacaoEstoque.venda_id`, único, para vincular a baixa à venda confirmada.
 
 ## Agente de atendimento
 
@@ -349,7 +358,8 @@ Detalhes da separação e das regras preservadas:
 
 Arquivo: `app/services/venda_service.py`
 
-Centraliza a regra de negócio de vendas.
+Mantém a API pública de vendas e delega a operação ao `EstoqueClient`.
+As regras transacionais ficam em `app/services/estoque_service.py`.
 
 Funções principais:
 
@@ -364,6 +374,11 @@ Antes de salvar uma venda, o serviço:
 - verifica se há estoque suficiente;
 - atualiza a quantidade disponível;
 - salva os registros de venda.
+
+Itens repetidos do mesmo produto são somados antes de validar. Venda, baixa,
+movimentação, atualização de alerta e recibo da operação têm commit único.
+Repetir a mesma chave UUID e o mesmo pedido retorna as vendas já registradas.
+Veja contratos e execução no [guia da Fase 4](docs/FASE_4_ESTOQUE.md).
 
 ## Rotas e telas
 
@@ -636,9 +651,9 @@ Veja o [guia de preparação dos dados](docs/PREPARACAO_DADOS.md).
 ## Estado atual do protótipo
 
 Fases 0, preparação dos dados, 1 (modelos/migrações), 2 (refatoração do
-atendimento) e 3 (infraestrutura SPADE/XMPP) concluídas. A próxima etapa é a
-Fase 4, implementação das operações de Controle de Estoque.
-Detalhes: [Fase 3](docs/FASE_3_SPADE_XMPP.md).
+atendimento), 3 (infraestrutura SPADE/XMPP) e 4 (Controle de Estoque) concluídas.
+A próxima etapa é a Fase 5, importação do histórico diário preparado.
+Detalhes: [Fase 3](docs/FASE_3_SPADE_XMPP.md) e [Fase 4](docs/FASE_4_ESTOQUE.md).
 
 Funcionalidades já implementadas:
 
@@ -654,6 +669,12 @@ Funcionalidades já implementadas:
 - pedidos com múltiplos produtos;
 - registro de vendas;
 - atualização de estoque;
+- entrada, saída e ajuste pelo saldo final, com histórico auditável;
+- cadastro e controle manual de matérias-primas;
+- mínimos configuráveis e alertas para saldo igual ou inferior ao mínimo;
+- consulta e confirmação Atendimento → Estoque por XMPP real;
+- consulta Estoque → Previsão, com estado indisponível enquanto o modelo não existe;
+- repetição segura por chave de operação persistente;
 - tela unificada de produtos e estoque;
 - tela de vendas;
 - endpoints JSON para testes sem interface gráfica.
@@ -661,10 +682,11 @@ Funcionalidades já implementadas:
 ## Limitações atuais
 
 - O agente usa regras simples por palavras-chave.
-- Estoque e Previsão têm infraestrutura de comunicação; suas operações de negócio
-  serão implementadas nas fases seguintes.
+- Previsão tem infraestrutura de comunicação; importação, treinamento e previsão
+  serão implementados nas fases seguintes. Alertas preditivos persistentes ficam
+  para a Fase 8.
 - Ainda não há autenticação de usuários.
-- O estoque é simplificado e fica dentro da tabela `produtos`.
+- Matérias-primas têm controle manual; abatimento por venda depende de receitas/BOM.
 - Um pedido com múltiplos produtos gera múltiplos registros na tabela `vendas`.
 - A interpretação de linguagem natural ainda é limitada a frases simples.
 
@@ -674,5 +696,4 @@ Funcionalidades já implementadas:
 - criar uma entidade formal de pedido com múltiplos itens;
 - adicionar métricas para avaliação do protótipo;
 - criar agente de previsão de demanda;
-- criar agente de controle de estoque;
 - exportar relatórios de vendas e atendimentos.

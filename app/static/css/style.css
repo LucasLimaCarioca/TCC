@@ -290,3 +290,39 @@ body {
         max-width: 82%;
     }
 }
+
+.stock-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 12px;
+    margin: 20px 0;
+}
+
+.stock-form h3, .stock-form p {
+    flex-basis: 100%;
+    margin: 0;
+}
+
+.stock-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-width: 100%;
+}
+
+.stock-form input, .stock-form select, .stock-form button {
+    padding: 10px;
+    border: 1px solid #d5ddd8;
+    border-radius: 6px;
+    font: inherit;
+}
+
+.stock-form button {
+    cursor: pointer;
+}
+
+.stock-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+}

@@ -19,6 +19,8 @@ class MovimentacaoEstoque(db.Model):
     tipo_item = db.Column(db.String(20), nullable=False)
     produto_id = db.Column(db.Integer, db.ForeignKey("produtos.id"), index=True)
     materia_prima_id = db.Column(db.Integer, db.ForeignKey("materias_primas.id"), index=True)
+    # Legados ficam NULL; cada venda nova produz exatamente uma movimentação.
+    venda_id = db.Column(db.Integer, db.ForeignKey("vendas.id"), unique=True)
     tipo_movimentacao = db.Column(db.String(20), nullable=False)
     quantidade = db.Column(db.Numeric(25, 9), nullable=False)
     saldo_anterior = db.Column(db.Numeric(25, 9), nullable=False)
@@ -28,3 +30,4 @@ class MovimentacaoEstoque(db.Model):
 
     produto = db.relationship("Produto")
     materia_prima = db.relationship("MateriaPrima")
+    venda = db.relationship("Venda")

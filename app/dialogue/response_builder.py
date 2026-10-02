@@ -73,15 +73,17 @@ class ResponseBuilder:
 
         return resposta
 
-    def disponibilidade(self, produtos, produto_especifico=None):
+    def disponibilidade(self, produtos, produto_especifico=None, saldos=None):
+        saldos = saldos or {}
         if produto_especifico is not None:
-            if produto_especifico.quantidade_disponivel <= 0:
+            saldo = saldos.get(produto_especifico.id, produto_especifico.quantidade_disponivel)
+            if saldo <= 0:
                 return (
                     f"No momento não temos {produto_especifico.nome} em estoque."
                 )
 
             return (
-                f"Sim, temos {produto_especifico.quantidade_disponivel} "
+                f"Sim, temos {saldo} "
                 f"unidades de {produto_especifico.nome} em estoque."
             )
 
@@ -95,7 +97,7 @@ class ResponseBuilder:
         for produto in produtos:
             resposta += (
                 f"{produto.categoria} - {produto.sabor}: "
-                f"{produto.quantidade_disponivel} unidades\n"
+                f"{saldos.get(produto.id, produto.quantidade_disponivel)} unidades\n"
             )
 
         return resposta
@@ -185,15 +187,16 @@ class ResponseBuilder:
             f"Exemplo: quero 2 caixas de 10L {sabor}."
         )
 
-    def estoque_insuficiente(self, produto):
-        if produto.quantidade_disponivel == 0:
+    def estoque_insuficiente(self, produto, saldo=None):
+        saldo = produto.quantidade_disponivel if saldo is None else saldo
+        if saldo == 0:
             return (
                 f"No momento não temos {produto.nome} em estoque.\n"
                 "Você pode escolher outro sabor ou categoria."
             )
         return (
             f"No momento temos apenas "
-            f"{produto.quantidade_disponivel} unidades de {produto.nome}.\n"
+            f"{saldo} unidades de {produto.nome}.\n"
             "Você pode pedir uma quantidade menor ou escolher outro sabor."
         )
 
