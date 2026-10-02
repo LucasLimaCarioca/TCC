@@ -6,6 +6,10 @@ O pipeline transforma o histórico de itens em demanda diária por produto sem
 propagar dados pessoais. É um comando separado do Flask e não altera o banco,
 o atendimento ou os agentes. Não treina modelos nem importa vendas para SQLite.
 
+A importação do dataset aprovado para `VendaHistorica` é um comando separado,
+implementado na [Fase 5](FASE_5_IMPORTACAO.md). Recebe o relatório desta preparação,
+confere o hash do CSV diário e preserva a política `dia_fonte`.
+
 Na raiz do projeto, com as dependências instaladas:
 
 ```bash

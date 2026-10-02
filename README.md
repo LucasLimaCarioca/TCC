@@ -20,6 +20,10 @@ para execução local sem runtime.
 Na Fase 4, `EstoqueAgent` passa a consultar disponibilidade e registrar vendas,
 baixas, movimentações e alertas em transações coordenadas. A tela `/estoque`
 inclui o controle manual de produtos acabados e matérias-primas.
+Na Fase 5, um comando local importa o histórico diário já preparado, preserva
+grupo/categoria e permite reconstruir séries por código externo. Consulte o
+[guia de importação](docs/FASE_5_IMPORTACAO.md) para validação, repetição segura
+e relatório privado. O treinamento permanece para a Fase 6.
 
 ## Arquitetura
 
@@ -118,6 +122,7 @@ TCC/
 │   │   ├── atendimento_service.py
 │   │   ├── estoque_client.py
 │   │   ├── estoque_service.py
+│   │   ├── importacao_service.py
 │   │   └── venda_service.py
 │   ├── static/
 │   │   └── css/
@@ -145,6 +150,9 @@ TCC/
 │   └── test_http.py
 ├── docs/
 │   └── BASELINE_FASE_0.md
+├── scripts/
+│   ├── prepare_history.py
+│   └── import_history.py
 └── README.md
 ```
 
@@ -304,8 +312,8 @@ Cada item vendido é salvo como um registro de venda. Um pedido com dois produto
   com o conteúdo do payload omitido pelo runtime.
 
 Nesta fase foram criadas estruturas e restrições de integridade. As rotinas de
-movimentação e alertas imediatos foram implementadas na Fase 4; importação e
-previsão permanecem para as fases seguintes.
+movimentação e alertas imediatos foram implementadas na Fase 4; a Fase 5 importa
+o histórico diário preparado. Previsão permanece para as fases seguintes.
 
 A Fase 4 acrescenta `OperacaoEstoque`, com recibo persistente de operação, e
 `MovimentacaoEstoque.venda_id`, único, para vincular a baixa à venda confirmada.
