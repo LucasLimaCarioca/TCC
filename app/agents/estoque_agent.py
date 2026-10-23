@@ -13,7 +13,7 @@ from app.agents.base_agent import AgentUnavailable, BaseAgent, RemoteFailure
 from app.agents.protocol import BAIXA_VENDA, DISPONIBILIDADE, PREVISAO, encode, failure
 from app.services import estoque_service
 from app.services.estoque_service import EstoqueError
-from app.services.alerta_preventivo_config import automatico_ativo, horizonte_preventivo
+from app.services.alerta_preventivo_config import automatico_ativo, horizonte_persistente, horizonte_preventivo
 
 
 class EstoqueAgent(BaseAgent):
@@ -159,7 +159,7 @@ class EstoqueAgent(BaseAgent):
     async def sincronizar_alerta_preventivo(self, produto_id, horizonte_dias=None, timeout=5):
         from app.services.alerta_preventivo_service import sincronizar_alerta_preventivo
 
-        horizon = horizonte_preventivo(self.app, horizonte_dias)
+        horizon = horizonte_persistente(self.app, horizonte_dias)
         await self.executar("consultar_produto", produto_id=produto_id)
         try:
             response = await self.request("previsao", PREVISAO, {"produto_id": produto_id,

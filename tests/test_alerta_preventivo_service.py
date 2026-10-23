@@ -97,26 +97,127 @@ def test_igualdade_ao_minimo_nao_e_risco_preventivo(ready):
         assert AlertaEstoque.query.count() == 0
 
 
-def test_horizonte_solicitado_e_independente_da_previsao_padrao(ready):
+def test_persistencia_usa_horizonte_oficial_configurado_inclusive_quando_omitido(ready):
     service, product, _ = ready
+    service.app.config["PREDICTIVE_ALERT_HORIZON_DAYS"] = 3
     payload = service.consultar(product, horizonte_dias=3)
     with service.app.app_context():
-        result = preventive.sincronizar_alerta_preventivo(product, payload, horizonte_dias=3, hoje=TODAY)
+        result = preventive.sincronizar_alerta_preventivo(product, payload, hoje=TODAY)
+        repeat = preventive.sincronizar_alerta_preventivo(product, payload, horizonte_dias=3, hoje=TODAY)
     assert result["previsao"]["horizonte_dias"] == 3 and result["saldo_projetado"] == "1"
     assert result["risco"]
+    assert repeat["alerta_id"] == result["alerta_id"]
 
 
 def test_zero_previsto_valido_pode_resolver_alerta_sem_inventar_demanda(ready):
-    sync(ready)
     service, product, _ = ready
+    service.app.config["PREDICTIVE_ALERT_HORIZON_DAYS"] = 1
     payload = service.consultar(product, horizonte_dias=1)
     assert payload["total_previsto"] == "0"  # Domingo no calendário fictício.
+    edit_product(ready, quantidade_disponivel=2)
+    with service.app.app_context():
+        assert preventive.sincronizar_alerta_preventivo(product, payload, hoje=TODAY)["acao"] == "criado"
+    edit_product(ready, quantidade_disponivel=5)
     with service.app.app_context():
         result = preventive.sincronizar_alerta_preventivo(product, payload, horizonte_dias=1, hoje=TODAY)
         assert result["acao"] == "resolvido" and result["saldo_projetado"] == "5"
         alert = AlertaEstoque.query.one()
         state = preventive.estado_alerta_preventivo(alert, db.session.get(Produto, product), payload["execucao_id"], hoje=TODAY)
         assert state == {"atual": False, "motivo": "resolvido"}
+
+
+def snapshot_alert(ready):
+    with ready[0].app.app_context():
+        alert = AlertaEstoque.query.one()
+        return deepcopy({column.name: getattr(alert, column.name) for column in alert.__table__.columns})
+
+
+@pytest.mark.parametrize("horizon", [1, 3, 10])
+def test_horizonte_nao_oficial_preserva_alerta_inteiro_mesmo_sem_risco(ready, horizon):
+    sync(ready)
+    original = snapshot_alert(ready)
+    service, product, _ = ready
+    payload = service.consultar(product, horizonte_dias=horizon)
+    with service.app.app_context(), pytest.raises(EstoqueError) as error:
+        preventive.sincronizar_alerta_preventivo(product, payload, horizon, hoje=TODAY)
+    assert error.value.code == "ALERT_HORIZON_MISMATCH"
+    assert snapshot_alert(ready) == original
+
+
+@pytest.mark.parametrize("horizon", [1, 3, 10])
+def test_horizonte_nao_oficial_nao_pode_criar_alerta(ready, horizon):
+    service, product, _ = ready
+    payload = service.consultar(product, horizonte_dias=horizon)
+    with service.app.app_context(), pytest.raises(EstoqueError) as error:
+        preventive.sincronizar_alerta_preventivo(product, payload, horizon, hoje=TODAY)
+    assert error.value.code == "ALERT_HORIZON_MISMATCH"
+    with service.app.app_context():
+        assert AlertaEstoque.query.count() == 0
+
+
+def test_payload_personalizado_nao_contorna_horizonte_oficial_omitindo_parametro(ready):
+    sync(ready)
+    original = snapshot_alert(ready)
+    service, product, _ = ready
+    payload = service.consultar(product, horizonte_dias=1)
+    with service.app.app_context(), pytest.raises(EstoqueError) as error:
+        preventive.sincronizar_alerta_preventivo(product, payload, hoje=TODAY)
+    assert error.value.code == "INVALID_RESPONSE"
+    assert snapshot_alert(ready) == original
+
+
+def test_mudanca_oficial_deixa_snapshot_pendente_ate_reconciliacao_valida(ready):
+    service, product, payload = ready
+    edit_product(ready, quantidade_disponivel=7)
+    sync(ready)
+    original = snapshot_alert(ready)
+    service.app.config["PREDICTIVE_ALERT_HORIZON_DAYS"] = 3
+    with service.app.app_context():
+        alert = AlertaEstoque.query.one()
+        state = preventive.estado_alerta_preventivo(alert, db.session.get(Produto, product),
+                                                   payload["execucao_id"], hoje=TODAY)
+        assert state == {"atual": False, "motivo": "horizonte_alterado"}
+    assert snapshot_alert(ready) == original
+    official = service.consultar(product, horizonte_dias=3)
+    with service.app.app_context():
+        result = preventive.sincronizar_alerta_preventivo(product, official, hoje=TODAY)
+    assert result["acao"] == "resolvido" and result["saldo_projetado"] == "3"
+    assert result["alerta_id"] == original["id"]
+
+
+def test_mudanca_da_configuracao_ao_obter_transacao_preserva_alerta(ready):
+    sync(ready)
+    original = snapshot_alert(ready)
+    service = ready[0]
+    def change_after_begin(connection, cursor, statement, parameters, context, executemany):
+        if statement == "BEGIN IMMEDIATE":
+            service.app.config["PREDICTIVE_ALERT_HORIZON_DAYS"] = 3
+    with service.app.app_context():
+        event.listen(db.engine, "after_cursor_execute", change_after_begin)
+        try:
+            with pytest.raises(EstoqueError) as error:
+                preventive.sincronizar_alerta_preventivo(ready[1], ready[2], hoje=TODAY)
+            assert error.value.code == "ALERT_HORIZON_MISMATCH"
+        finally:
+            event.remove(db.engine, "after_cursor_execute", change_after_begin)
+    assert snapshot_alert(ready) == original
+
+
+def test_mudanca_da_configuracao_durante_gravacao_reverte_toda_alteracao(ready):
+    sync(ready)
+    original = snapshot_alert(ready)
+    service = ready[0]
+    def change_before_flush(session, *args):
+        if any(isinstance(obj, AlertaEstoque) for obj in session.dirty):
+            service.app.config["PREDICTIVE_ALERT_HORIZON_DAYS"] = 3
+    event.listen(Session, "before_flush", change_before_flush)
+    try:
+        with pytest.raises(EstoqueError) as error:
+            sync(ready)
+        assert error.value.code == "ALERT_HORIZON_MISMATCH"
+    finally:
+        event.remove(Session, "before_flush", change_before_flush)
+    assert snapshot_alert(ready) == original
 
 
 def test_payload_do_chamador_nao_compartilha_snapshot_persistido(ready):

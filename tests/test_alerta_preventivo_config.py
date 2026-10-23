@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services.alerta_preventivo_config import automatico_ativo, horizonte_preventivo
+from app.services.alerta_preventivo_config import automatico_ativo, horizonte_persistente, horizonte_preventivo
 from app.services.estoque_service import EstoqueError
 
 
@@ -40,3 +40,15 @@ def test_override_da_consulta_exige_inteiro(value):
 def test_rejeita_flag_automatica_ambigua(value):
     with pytest.raises(EstoqueError):
         automatico_ativo(SimpleNamespace(config={"PREDICTIVE_ALERTS_AUTO_ENABLED": value}, testing=True))
+
+
+@pytest.mark.parametrize("official", [1, 3, 7, 14, 366, "11"])
+def test_horizonte_persistente_aceita_somente_valor_configurado(official):
+    app = SimpleNamespace(config={"PREDICTIVE_ALERT_HORIZON_DAYS": official}, testing=True)
+    assert horizonte_persistente(app) == int(official)
+    assert horizonte_persistente(app, int(official)) == int(official)
+    custom = 3 if int(official) != 3 else 7
+    assert horizonte_preventivo(app, custom) == custom  # Consulta permanece livre.
+    with pytest.raises(EstoqueError) as error:
+        horizonte_persistente(app, custom)
+    assert error.value.code == "ALERT_HORIZON_MISMATCH"

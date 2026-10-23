@@ -2,7 +2,7 @@
 
 O Agente de Estoque consulta o Agente de Previsão por XMPP e registra alertas
 preventivos para produtos acabados. A projeção usa o saldo atual e a demanda
-prevista no horizonte escolhido:
+prevista no horizonte oficial configurado:
 
 ```text
 saldo_projetado = estoque_atual - demanda_prevista_no_horizonte
@@ -35,6 +35,13 @@ O horizonte precisa caber na execução de previsão ativa. Informar um horizont
 maior não estende o artefato nem preenche dias ausentes com zeros. Consulte o
 [guia da Fase 7](FASE_7_AGENTE_PREVISAO.md) para carregar uma execução e associar
 os códigos externos aos produtos do catálogo.
+
+`PREDICTIVE_ALERT_HORIZON_DAYS` é o horizonte oficial dos alertas persistentes.
+Uma tentativa de criar, atualizar ou resolver um alerta com outro horizonte
+retorna `ALERT_HORIZON_MISMATCH`, preservando o registro e seus horários.
+Consultas de risco podem usar horizontes personalizados, sem efeitos colaterais.
+Se a configuração oficial mudar, a avaliação anterior fica pendente até uma
+reconciliação válida pelo novo horizonte oficial.
 
 ## Quando os alertas são atualizados
 
@@ -114,7 +121,7 @@ nunca cria nem resolve alertas.
 
 `POST /api/estoque/alertas/preventivos/<produto_id>` solicita uma reconciliação
 do produto. O corpo deve ser um objeto JSON vazio ou conter exclusivamente um
-`horizonte_dias` inteiro entre 1 e 366:
+`horizonte_dias` inteiro igual ao horizonte oficial configurado:
 
 ```json
 {"horizonte_dias": 7}
@@ -125,10 +132,12 @@ fracionários são rejeitados com HTTP 400. Sem runtime, a operação retorna HT
 503. Uma avaliação com previsão indisponível pode retornar HTTP 200 com o
 estado desconhecido e `risco=null`; o cliente deve interpretar esse estado,
 preservando a distinção entre indisponibilidade e ausência de risco.
+Horizontes válidos mas diferentes do oficial também retornam HTTP 400, com
+`ALERT_HORIZON_MISMATCH`, antes de solicitar a previsão.
 
 Na tela `/estoque`, **Consultar risco** apenas apresenta a projeção.
-**Atualizar alerta deste produto** é a ação de persistência. Cada formulário
-permite escolher o horizonte. A sincronização anterior,
+**Atualizar alerta deste produto** é a ação de persistência e exige o horizonte
+oficial; a consulta permite escolher outros horizontes. A sincronização anterior,
 `POST /api/estoque/alertas/sincronizar`, continua dedicada aos alertas de
 estoque mínimo dos produtos e matérias-primas.
 
@@ -145,7 +154,8 @@ flask --app app.app:create_app previsao sincronizar-alerta \
   --produto-id '<id-do-catalogo>' --horizonte 7
 ```
 
-Omitir `--horizonte` usa `PREDICTIVE_ALERT_HORIZON_DAYS`. Como os demais comandos
+Omitir `--horizonte` usa `PREDICTIVE_ALERT_HORIZON_DAYS`; um valor explícito deve
+ser igual ao configurado. Como os demais comandos
 que iniciam runtime temporário, execute com a aplicação web parada e com as
 credenciais XMPP configuradas. O console informa apenas o caminho da resposta
 privada, `data/reports/consulta-agente-<id>.json`; previsões e códigos reais

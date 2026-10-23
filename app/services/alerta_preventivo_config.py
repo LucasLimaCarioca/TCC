@@ -18,6 +18,16 @@ def horizonte_preventivo(app, valor=None):
     return value
 
 
+def horizonte_persistente(app, valor=None):
+    """Somente o horizonte oficial pode alterar alertas persistentes."""
+    official = horizonte_preventivo(app)
+    if valor is not None and horizonte_preventivo(app, valor) != official:
+        raise EstoqueError("ALERT_HORIZON_MISMATCH",
+            "Alertas persistentes usam o horizonte configurado em PREDICTIVE_ALERT_HORIZON_DAYS. "
+            "Para outros horizontes, consulte o risco sem atualizar o alerta.")
+    return official
+
+
 def automatico_ativo(app):
     value = _value(app, "PREDICTIVE_ALERTS_AUTO_ENABLED", not app.testing)
     if type(value) is str and value in {"0", "1"}:

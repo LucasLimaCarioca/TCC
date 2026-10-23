@@ -2,6 +2,8 @@
 
 import json
 import subprocess
+from copy import deepcopy
+from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
@@ -30,7 +32,10 @@ def preventive_app(tmp_path):
         db.session.flush()
         app.config["FICTIONAL_PRODUCT_ID"] = product.id
         db.session.add(AlertaEstoque(tipo_item="produto", produto_id=product.id, tipo_alerta="risco_futuro",
-                                    mensagem="Alerta fictício anterior", nivel="aviso", ativo=True))
+                                    mensagem="Alerta fictício anterior", nivel="aviso", ativo=True,
+                                    previsao_json={"previsao": {"horizonte_dias": 11},
+                                                   "avaliada_em": "2026-01-11T12:00:00+00:00"},
+                                    atualizado_em=datetime(2026, 1, 11, 12)))
         db.session.commit()
     yield app
     with app.app_context():
@@ -60,7 +65,14 @@ def _path(app, preventive=False):
     return f"/api/estoque/alertas/preventivos/{product}" if preventive else f"/api/estoque/risco/{product}"
 
 
-@pytest.mark.parametrize("payload,expected", [({}, 11), ({"horizonte_dias": 1}, 1), ({"horizonte_dias": 366}, 366)])
+def _alert_state(app):
+    with app.app_context():
+        alert = AlertaEstoque.query.one()
+        return (alert.id, alert.mensagem, alert.ativo, alert.criado_em, alert.resolvido_em,
+                alert.atualizado_em, deepcopy(alert.previsao_json))
+
+
+@pytest.mark.parametrize("payload,expected", [({}, 11), ({"horizonte_dias": 11}, 11)])
 def test_post_usa_gateway_com_horizonte_validado(preventive_app, payload, expected):
     gateway = FakeGateway()
     preventive_app.extensions["agent_gateway"] = gateway
@@ -68,6 +80,19 @@ def test_post_usa_gateway_com_horizonte_validado(preventive_app, payload, expect
     assert response.status_code == 200
     assert response.get_json() == gateway.result
     assert gateway.calls == [("sincronizar", preventive_app.config["FICTIONAL_PRODUCT_ID"], expected)]
+
+
+@pytest.mark.parametrize("horizon", [1, 3, 14, 366])
+def test_post_rejeita_horizonte_divergente_sem_gateway_ou_mutacao(preventive_app, horizon):
+    gateway = FakeGateway()
+    preventive_app.extensions["agent_gateway"] = gateway
+    original = _alert_state(preventive_app)
+    response = preventive_app.test_client().post(_path(preventive_app, True),
+                                                 json={"horizonte_dias": horizon})
+    assert response.status_code == 400
+    assert response.get_json()["code"] == "ALERT_HORIZON_MISMATCH"
+    assert gateway.calls == []
+    assert _alert_state(preventive_app) == original
 
 
 @pytest.mark.parametrize("payload", [[], None, "fictício", {"produto_id": 1}, {"horizonte_dias": None},
@@ -91,20 +116,17 @@ def test_post_requer_runtime_e_nao_resolve_alerta(preventive_app):
         assert alert.ativo and alert.resolvido_em is None
 
 
-@pytest.mark.parametrize("query,expected", [("", 11), ("?horizonte_dias=8&granularidade=semanal", 8)])
+@pytest.mark.parametrize("query,expected", [("", 11), ("?horizonte_dias=3", 3),
+    ("?horizonte_dias=14", 14), ("?horizonte_dias=8&granularidade=semanal", 8)])
 def test_get_risco_somente_consulta_preservando_alerta(preventive_app, query, expected):
     gateway = FakeGateway()
     preventive_app.extensions["agent_gateway"] = gateway
-    with preventive_app.app_context():
-        alert = AlertaEstoque.query.one()
-        original = (alert.id, alert.mensagem, alert.ativo, alert.criado_em, alert.resolvido_em)
+    original = _alert_state(preventive_app)
     response = preventive_app.test_client().get(_path(preventive_app) + query)
     assert response.status_code == 200
     assert gateway.calls == [("consultar", preventive_app.config["FICTIONAL_PRODUCT_ID"],
-                              "semanal" if query else "diaria", expected)]
-    with preventive_app.app_context():
-        alert = AlertaEstoque.query.one()
-        assert (alert.id, alert.mensagem, alert.ativo, alert.criado_em, alert.resolvido_em) == original
+                              "semanal" if "granularidade=semanal" in query else "diaria", expected)]
+    assert _alert_state(preventive_app) == original
 
 
 @pytest.mark.parametrize("query", ["?horizonte_dias=0", "?horizonte_dias=367", "?horizonte_dias=abc",
@@ -158,7 +180,7 @@ def test_tela_aceita_alertas_legados_sem_avaliacao(preventive_app, monkeypatch):
     assert response.status_code == 200 and "Alerta fictício anterior" in response.get_data(as_text=True)
 
 
-@pytest.mark.parametrize("horizon", [None, 9])
+@pytest.mark.parametrize("horizon", [None, 11])
 def test_cli_exporta_resultado_privado_sem_imprimir_conteudo(preventive_app, tmp_path, monkeypatch, horizon):
     from app import forecast_commands
 

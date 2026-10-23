@@ -10,6 +10,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, localcontext
 from zoneinfo import ZoneInfo
 
+from flask import current_app
 from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -22,6 +23,7 @@ from app.models.produto import Produto
 from app.models.timestamps import utc_now
 from app.services import previsao_repository as repository
 from app.services.estoque_service import EstoqueError, inteiro
+from app.services.alerta_preventivo_config import horizonte_persistente
 
 
 def _hoje(value):
@@ -29,12 +31,6 @@ def _hoje(value):
         return datetime.now(ZoneInfo("America/Manaus")).date()
     if type(value) is not date:
         raise EstoqueError("INVALID_INPUT", "Informe uma data comercial válida.")
-    return value
-
-
-def _horizonte(value):
-    if type(value) is not int or not 1 <= value <= 366:
-        raise EstoqueError("INVALID_INPUT", "Informe um horizonte entre 1 e 366 dias.")
     return value
 
 
@@ -101,7 +97,7 @@ def _confirmar_execucao(session, product, payload, horizon):
         raise EstoqueError("FORECAST_CHANGED", "A resposta diverge da execução ativa; consulte novamente a previsão.") from None
 
 
-def sincronizar_alerta_preventivo(produto_id, previsao, horizonte_dias=7, *, hoje=None, cancel_event=None):
+def sincronizar_alerta_preventivo(produto_id, previsao, horizonte_dias=None, *, hoje=None, cancel_event=None):
     """Cria, atualiza ou resolve somente o risco futuro do produto informado.
 
     O chamador obtém a previsão via RPC antes desta função. Esta sessão reserva
@@ -109,7 +105,7 @@ def sincronizar_alerta_preventivo(produto_id, previsao, horizonte_dias=7, *, hoj
     observado antes do RPC é usado para decidir ou resolver um alerta.
     """
     _nao_cancelado(cancel_event)
-    product_id, horizon, today = inteiro(produto_id), _horizonte(horizonte_dias), _hoje(hoje)
+    product_id, horizon, today = inteiro(produto_id), horizonte_persistente(current_app, horizonte_dias), _hoje(hoje)
     payload = _payload(previsao)
     if payload["produto_id"] != product_id or payload["horizonte_dias"] != horizon:
         raise EstoqueError("INVALID_RESPONSE", "A previsão recebida não corresponde ao produto e horizonte solicitados.")
@@ -119,6 +115,7 @@ def sincronizar_alerta_preventivo(produto_id, previsao, horizonte_dias=7, *, hoj
             try:
                 session.execute(text("BEGIN IMMEDIATE"))
                 _nao_cancelado(cancel_event)
+                horizonte_persistente(current_app, horizon)
                 product = session.get(Produto, product_id)
                 if product is None or not product.ativo:
                     raise EstoqueError("PRODUCT_NOT_FOUND", "Produto ativo não encontrado no catálogo.")
@@ -164,6 +161,7 @@ def sincronizar_alerta_preventivo(produto_id, previsao, horizonte_dias=7, *, hoj
                           "estoque_minimo": product.estoque_minimo, "alerta_id": alert.id if alert else None,
                           "acao": action, "previsao": payload}
                 _nao_cancelado(cancel_event)
+                horizonte_persistente(current_app, horizon)
                 session.commit()
             except BaseException:
                 session.rollback()
@@ -217,6 +215,8 @@ def estado_alerta_preventivo(alerta, produto, execucao_ativa_id, *, hoje=None):
         return state("minimo_alterado")
     if execucao_ativa_id != payload["execucao_id"]:
         return state("execucao_alterada")
+    if payload["horizonte_dias"] != horizonte_persistente(current_app):
+        return state("horizonte_alterado")
     try:
         _vigencia(payload, payload["horizonte_dias"], today)
     except EstoqueError:

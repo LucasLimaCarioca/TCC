@@ -5,7 +5,7 @@ from flask import Blueprint, current_app, jsonify, render_template, request
 from app.agents.base_agent import AgentUnavailable
 from app.services.estoque_client import EstoqueClient
 from app.services.estoque_service import EstoqueError, resolver_chaves_operacao
-from app.services.alerta_preventivo_config import horizonte_preventivo
+from app.services.alerta_preventivo_config import horizonte_persistente, horizonte_preventivo
 from app.models.produto import Produto
 
 
@@ -96,7 +96,7 @@ def sincronizar_alerta_preventivo_api(produto_id):
         raise EstoqueError("INVALID_INPUT", "Informe apenas o horizonte do alerta preventivo.")
     if "horizonte_dias" in dados and type(dados["horizonte_dias"]) is not int:
         raise EstoqueError("INVALID_INPUT", "Informe um horizonte inteiro entre 1 e 366 dias.")
-    horizonte = horizonte_preventivo(current_app, dados.get("horizonte_dias"))
+    horizonte = horizonte_persistente(current_app, dados.get("horizonte_dias"))
     gateway = current_app.extensions.get("agent_gateway")
     if gateway is None:
         raise AgentUnavailable("Ative o runtime para atualizar os alertas preventivos.")

@@ -2,16 +2,19 @@
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date
+from copy import deepcopy
+from datetime import date, datetime
 from hashlib import sha256
 import json
 import time
 from threading import Event
+from types import SimpleNamespace
 
 import pytest
 
 from app.agents.base_agent import RemoteFailure
 from app.agents.gateway import AgentGateway
+from app.agents.protocol import JIDS, PREVISAO
 from app.database import db
 from app.models.alerta_estoque import AlertaEstoque
 from app.models.log_mensagem_agente import LogMensagemAgente
@@ -19,6 +22,7 @@ from app.models.produto import Produto
 from app.models.venda import Venda
 from app.services import alerta_preventivo_service as preventive
 from app.services import previsao_service
+from app.services.estoque_service import EstoqueError
 from test_agent_runtime import runtime
 from test_alerta_preventivo_service import ready
 from test_previsao_service import configured
@@ -45,8 +49,15 @@ def wait_alerts(runtime):
 
 def alert_rows(service):
     with service.app.app_context():
-        return [(a.id, a.ativo, a.previsao_json, a.resolvido_em) for a in
+        return [(a.id, a.ativo, deepcopy(a.previsao_json), a.resolvido_em,
+                 a.atualizado_em, a.criado_em, a.mensagem) for a in
                 AlertaEstoque.query.filter_by(tipo_alerta="risco_futuro").order_by(AlertaEstoque.id)]
+
+
+def forecast_requests(service):
+    with service.app.app_context():
+        return LogMensagemAgente.query.filter_by(ontology=PREVISAO, sender=JIDS["estoque"],
+                                                performative="request", status="sent").count()
 
 
 def test_inicializacao_e_repeticao_criam_um_alerta_por_xmpp(automatic_ready, runtime):
@@ -80,7 +91,7 @@ def test_reposicao_resolve_e_venda_reabre_sem_alterar_confirmacao(automatic_read
         assert db.session.get(Produto, product).quantidade_disponivel == 5
 
 
-def test_mudanca_minimo_e_horizonte_reavaliam_mesmo_alerta(automatic_ready, runtime):
+def test_mudanca_minimo_reavalia_mesmo_alerta_no_horizonte_oficial(automatic_ready, runtime):
     service, product, _ = automatic_ready
     wait_alerts(runtime)
     gateway = AgentGateway(runtime)
@@ -91,9 +102,100 @@ def test_mudanca_minimo_e_horizonte_reavaliam_mesmo_alerta(automatic_ready, runt
     gateway.executar_estoque("configurar_minimo", tipo_item="produto", item_id=product, estoque_minimo=4)
     wait_alerts(runtime)
     assert alert_rows(service)[-1][1]
-    result = gateway.sincronizar_alerta_preventivo(product, 3)
-    assert not result["risco"] and result["acao"] == "resolvido"
-    assert not alert_rows(service)[-1][1]
+    active = alert_rows(service)[-1]
+    result = gateway.sincronizar_alerta_preventivo(product, 7)
+    assert result["risco"] and result["acao"] == "atualizado"
+    assert result["alerta_id"] == active[0]
+    assert result["previsao"]["horizonte_dias"] == 7
+    assert alert_rows(service)[-1][1]
+
+
+@pytest.mark.parametrize("horizon", [1, 3, 10, 14, 366])
+def test_horizonte_conflitante_preserva_alerta_sem_rpc(automatic_ready, runtime, monkeypatch, horizon):
+    service, product, _ = automatic_ready
+    wait_alerts(runtime)
+    original = alert_rows(service)
+    requests = forecast_requests(service)
+    calls = []
+
+    def unexpected_query(**kwargs):
+        calls.append(kwargs)
+        pytest.fail("Horizonte divergente não deve consultar o agente de previsão.")
+
+    monkeypatch.setattr(runtime.agents["previsao"].service, "consultar", unexpected_query)
+    with pytest.raises(EstoqueError) as error:
+        AgentGateway(runtime).sincronizar_alerta_preventivo(product, horizon)
+    assert error.value.code == "ALERT_HORIZON_MISMATCH"
+    assert calls == []
+    assert forecast_requests(service) == requests
+    assert alert_rows(service) == original
+
+
+def test_get_customizado_sem_risco_nao_resolve_alerta_oficial(automatic_ready, runtime, monkeypatch):
+    from app.agents import estoque_agent
+
+    service, product, _ = automatic_ready
+    wait_alerts(runtime)
+    gateway = AgentGateway(runtime)
+    gateway.executar_estoque("movimentar", tipo_item="produto", item_id=product,
+                            tipo_movimentacao="ajuste", quantidade=13, motivo="Contagem fictícia")
+    wait_alerts(runtime)
+    gateway.executar_estoque("configurar_minimo", tipo_item="produto", item_id=product, estoque_minimo=4)
+    wait_alerts(runtime)
+    original = alert_rows(service)
+    assert original[-1][1] and original[-1][2]["previsao"]["horizonte_dias"] == 7
+    monkeypatch.setattr(estoque_agent, "datetime", SimpleNamespace(
+        now=lambda zone: datetime(2026, 1, 11, tzinfo=zone)))
+    client = service.app.test_client()
+    short = client.get(f"/api/estoque/risco/{product}?horizonte_dias=3")
+    assert short.status_code == 200
+    result = short.get_json()
+    assert result["status"] == "ok" and result["risco"] is False
+    assert result["previsao"]["horizonte_dias"] == 3 and result["saldo_projetado"] == "9"
+    assert alert_rows(service) == original
+    long = client.get(f"/api/estoque/risco/{product}?horizonte_dias=14")
+    assert long.status_code == 200
+    assert long.get_json()["code"] == "HORIZON_UNAVAILABLE"
+    assert alert_rows(service) == original
+
+
+@pytest.mark.parametrize("horizon", [None, 3])
+def test_horizonte_oficial_configurado_pode_ser_diferente_de_sete(ready, runtime, monkeypatch, horizon):
+    service, product, _ = ready
+    service.app.config["PREDICTIVE_ALERT_HORIZON_DAYS"] = 3
+    original_day = preventive._hoje
+    monkeypatch.setattr(preventive, "_hoje", lambda value: original_day(date(2026, 1, 11) if value is None else value))
+    result = AgentGateway(runtime).sincronizar_alerta_preventivo(product, horizon)
+    assert result["acao"] == "criado" and result["risco"]
+    assert result["previsao"]["horizonte_dias"] == 3
+    assert alert_rows(service)[0][2]["previsao"]["horizonte_dias"] == 3
+
+
+def test_mudanca_horizonte_oficial_durante_rpc_preserva_alerta(automatic_ready, runtime, monkeypatch):
+    service, product, _ = automatic_ready
+    wait_alerts(runtime)
+    original = alert_rows(service)
+    original_query = runtime.agents["previsao"].service.consultar
+    started, release = Event(), Event()
+
+    def slow_query(**kwargs):
+        result = original_query(**kwargs)
+        started.set()
+        assert release.wait(3)
+        return result
+
+    monkeypatch.setattr(runtime.agents["previsao"].service, "consultar", slow_query)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(AgentGateway(runtime).sincronizar_alerta_preventivo, product)
+        try:
+            assert started.wait(3)
+            service.app.config["PREDICTIVE_ALERT_HORIZON_DAYS"] = 3
+        finally:
+            release.set()
+        with pytest.raises(EstoqueError) as error:
+            future.result(timeout=5)
+    assert error.value.code == "ALERT_HORIZON_MISMATCH"
+    assert alert_rows(service) == original
 
 
 def test_falha_de_previsao_preserva_alerta_e_venda_confirmada(automatic_ready, runtime, monkeypatch):
