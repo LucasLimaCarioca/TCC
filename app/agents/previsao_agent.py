@@ -5,7 +5,7 @@ from threading import Event
 from uuid import uuid4
 
 from app.agents.base_agent import BaseAgent
-from app.agents.protocol import (PREVISAO, PREVISAO_ATUALIZAR, PREVISAO_PUBLICADA, PREVISAO_STATUS,
+from app.agents.protocol import (PREVISAO, PREVISAO_ATUALIZAR, PREVISAO_PAINEL, PREVISAO_PUBLICADA, PREVISAO_STATUS,
                                  encode, failure)
 from app.services.previsao_service import PrevisaoError, PrevisaoService
 
@@ -55,7 +55,7 @@ class PrevisaoAgent(BaseAgent):
         await asyncio.shield(self._initialization)
 
     async def handle_request(self, sender, envelope):
-        if envelope.ontology not in {PREVISAO, PREVISAO_ATUALIZAR, PREVISAO_STATUS}:
+        if envelope.ontology not in {PREVISAO, PREVISAO_PAINEL, PREVISAO_ATUALIZAR, PREVISAO_STATUS}:
             return await super().handle_request(sender, envelope)
         try:
             if self._stopped:
@@ -64,10 +64,11 @@ class PrevisaoAgent(BaseAgent):
                 result = self._status(envelope.payload["job_id"])
             else:
                 await self._wait_initialized()
-                if envelope.ontology == PREVISAO:
+                if envelope.ontology in {PREVISAO, PREVISAO_PAINEL}:
                     if self._initialization_error is not None:
                         raise PrevisaoError(*self._initialization_error)
-                    result = await asyncio.to_thread(self.service.consultar, **envelope.payload)
+                    operation = self.service.painel if envelope.ontology == PREVISAO_PAINEL else self.service.consultar
+                    result = await asyncio.to_thread(operation, **envelope.payload)
                 else:
                     result = self._schedule(envelope.payload)
             return encode(sender, envelope.ontology, result, "inform", envelope.thread)

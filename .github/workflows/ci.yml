@@ -40,7 +40,9 @@ jobs:
         run: python -m pip check
 
       - name: Validar JavaScript
-        run: node --check app/static/js/estoque.js
+        run: |
+          node --check app/static/js/estoque.js
+          node --check app/static/js/previsoes.js
 
       - name: Executar suíte completa
         run: python -m pytest -q

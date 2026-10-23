@@ -38,6 +38,10 @@ deixa o saldo projetado abaixo do mínimo. A atualização automática reúne
 solicitações após mudanças de estoque ou previsão; a tela também permite
 consultar o risco e solicitar uma avaliação. Previsão indisponível preserva os
 alertas anteriores. Consulte o [guia dos alertas](docs/FASE_8_ALERTAS_PREVENTIVOS.md).
+Na Fase 9, a área `/previsoes` reúne filtros por código histórico, período e
+frequência, gráfico local, tabela decimal e avaliação temporal por produto.
+O recálculo usa o agente existente em segundo plano, com acompanhamento da
+tarefa. Consulte o [guia da interface](docs/FASE_9_INTERFACE_WEB.md).
 
 ## Arquitetura
 
@@ -140,6 +144,7 @@ TCC/
 │   │   └── service.py
 │   ├── routes/
 │   │   ├── estoque_routes.py
+│   │   ├── previsao_routes.py
 │   │   ├── produto_routes.py
 │   │   └── venda_routes.py
 │   ├── services/
@@ -147,13 +152,18 @@ TCC/
 │   │   ├── estoque_client.py
 │   │   ├── estoque_service.py
 │   │   ├── importacao_service.py
+│   │   ├── previsao_painel_service.py
 │   │   └── venda_service.py
 │   ├── static/
-│   │   └── css/
-│   │       └── style.css
+│   │   ├── css/
+│   │   │   └── style.css
+│   │   └── js/
+│   │       ├── estoque.js
+│   │       └── previsoes.js
 │   ├── templates/
 │   │   ├── base.html
 │   │   ├── estoque.html
+│   │   ├── previsoes.html
 │   │   ├── simulacao_venda.html
 │   │   └── vendas.html
 │   ├── app.py
@@ -201,7 +211,7 @@ Define a função `create_app(test_config=None)`, responsável por:
 - criar a aplicação Flask;
 - configurar o banco SQLite;
 - inicializar o SQLAlchemy;
-- registrar os blueprints de atendimento, produtos e estoque.
+- registrar os blueprints de atendimento, produtos, estoque e previsões.
 
 Sem argumentos, usa o caminho absoluto `data/artifacts/sorvetes.db`, validado
 como privado e ignorado pelo Git. Nos testes,
@@ -499,6 +509,19 @@ explicitamente; **Consultar risco** não altera registros. O horizonte padrão
 é de sete dias e pode ser configurado. Indisponibilidade deixa o risco
 desconhecido e conserva alertas anteriores.
 
+### Previsões de demanda
+
+A rota `/previsoes` apresenta a publicação do Agente de Previsão, com visão
+geral ou código histórico, filtros de período, agrupamentos diário/semanal/mensal,
+gráfico e tabela. Modelos e métricas são exibidos por produto com seus baselines.
+Códigos sem associação ao catálogo continuam disponíveis para consulta.
+
+O botão de atualização solicita uma tarefa por SPADE/XMPP e acompanha seu
+estado, preservando a publicação anterior durante o trabalho. O recálculo exige
+`FORECAST_REVIEW` configurado para uma revisão aprovada. A consulta é somente
+leitura e não altera os alertas preventivos. Contratos e configuração estão no
+[guia da Fase 9](docs/FASE_9_INTERFACE_WEB.md).
+
 ### Vendas
 
 Rota:
@@ -724,11 +747,16 @@ persistência transacional das execuções. A consulta de risco do Estoque exige
 cobertura iniciando hoje e vínculo explícito do produto ao histórico.
 A Fase 8 implementa alertas preventivos persistentes, reconciliação automática
 e sob comando, com deduplicação e resolução somente após avaliação válida.
+A Fase 9 acrescenta a tela de previsões na mesma aplicação Flask, usando
+consulta por XMPP, filtros dentro da cobertura publicada, gráfico e métricas
+por produto. Códigos sem associação ao catálogo também são consultáveis nessa
+tela, sem alterar os vínculos exigidos pelas operações de estoque.
 Detalhes: [Fase 3](docs/FASE_3_SPADE_XMPP.md),
 [Fase 4](docs/FASE_4_ESTOQUE.md), [Fase 5](docs/FASE_5_IMPORTACAO.md),
-[Fase 6](docs/FASE_6_PREVISAO.md) e
-[Fase 7](docs/FASE_7_AGENTE_PREVISAO.md) e
-[Fase 8](docs/FASE_8_ALERTAS_PREVENTIVOS.md).
+[Fase 6](docs/FASE_6_PREVISAO.md),
+[Fase 7](docs/FASE_7_AGENTE_PREVISAO.md),
+[Fase 8](docs/FASE_8_ALERTAS_PREVENTIVOS.md) e
+[Fase 9](docs/FASE_9_INTERFACE_WEB.md).
 
 Funcionalidades já implementadas:
 
@@ -757,16 +785,19 @@ Funcionalidades já implementadas:
 - repetição segura por chave de operação persistente;
 - manutenção do pedido e da chave após falha de confirmação, com substituição ou cancelamento;
 - tela principal de estoque em `/estoque` e consultas GET somente leitura;
+- tela de previsões em `/previsoes`, com códigos históricos, período e agrupamentos;
+- gráfico local, valores decimais e comparação por produto com baselines;
+- atualização pela tela e acompanhamento de tarefa sem treinamento na thread HTTP;
 - tela de vendas;
 - endpoints JSON para testes sem interface gráfica.
 
 ## Limitações atuais
 
 - O agente usa regras simples por palavras-chave.
-- A tela completa de previsões permanece para a Fase 9. Treinamento periódico
-  não está ativado; a reconciliação dos alertas usa a execução de previsão disponível.
-- Consultas de previsão por produto exigem associação explícita por código
-  externo; o sistema informa indisponibilidade quando ela não existe.
+- Treinamento periódico não está ativado; a reconciliação dos alertas usa a
+  execução de previsão disponível. O recálculo exige revisão histórica aprovada.
+- A avaliação de risco por produto do estoque exige associação explícita por
+  código externo. A tela de previsões permite consultar códigos sem essa associação.
 - Ainda não há autenticação de usuários.
 - Matérias-primas têm controle manual; abatimento por venda depende de receitas/BOM.
 - Um pedido com múltiplos produtos gera múltiplos registros na tabela `vendas`.
@@ -777,5 +808,5 @@ Funcionalidades já implementadas:
 - melhorar interpretação de intenção;
 - criar uma entidade formal de pedido com múltiplos itens;
 - adicionar métricas para avaliação do protótipo;
-- implementar a tela completa de previsões;
+- realizar a validação experimental da Fase 10;
 - exportar relatórios de vendas e atendimentos.

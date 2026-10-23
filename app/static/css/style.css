@@ -326,3 +326,76 @@ body {
     width: 100%;
     overflow-x: auto;
 }
+
+/* Interface de previsão: estilos locais, sem alterar a estrutura do chat. */
+.nav-links { flex-wrap: wrap; }
+.nav-links a[aria-current="page"] { background: rgba(255, 255, 255, 0.2); }
+.nav-links a:focus-visible, .forecast-page :focus-visible {
+    outline: 3px solid #cf8d00;
+    outline-offset: 3px;
+}
+.forecast-page { width: min(1280px, calc(100% - 48px)); color: #243a33; }
+.forecast-page [hidden] { display: none !important; }
+.forecast-page h2, .forecast-page h3 { color: #075e54; }
+.forecast-page h2 { margin-top: 0; }
+.forecast-form { display: flex; flex-wrap: wrap; gap: 14px; align-items: end; }
+.forecast-form label { display: grid; gap: 7px; font-weight: bold; font-size: 14px; min-width: 145px; }
+.forecast-form label:first-child { flex: 1 1 250px; }
+.forecast-form input, .forecast-form select, .forecast-secondary {
+    box-sizing: border-box;
+    border: 1px solid #b8c9c1;
+    border-radius: 6px;
+    padding: 11px 12px;
+    font: inherit;
+    background: white;
+    color: #243a33;
+    min-height: 43px;
+    max-width: 100%;
+}
+.forecast-form select { width: 100%; }
+.forecast-form button { min-height: 43px; }
+.forecast-secondary { cursor: pointer; background: #f1f6f3; }
+.forecast-page button:disabled, .forecast-page input:disabled { opacity: 0.65; cursor: wait; }
+.forecast-page p { line-height: 1.55; }
+.forecast-help { font-size: 14px; color: #52645b; }
+.forecast-notice { padding: 12px 16px; border-radius: 6px; background: #eef4f1; border-left: 4px solid #075e54; }
+.forecast-warning { background: #fff7df; border-left-color: #9b6500; color: #684600; }
+.forecast-danger { background: #fff1f1; border-left-color: #a92032; color: #8d1425; }
+.forecast-summary { display: grid; grid-template-columns: 1.1fr 1fr 1fr 1.1fr; gap: 16px; margin: 22px 0; }
+.forecast-summary > div { padding: 16px; border: 1px solid #dbe7e0; border-radius: 8px; background: #f6faf7; }
+.forecast-summary dt { color: #52645b; font-size: 14px; margin-bottom: 10px; }
+.forecast-summary dd { margin: 0; font-weight: bold; line-height: 1.5; overflow-wrap: anywhere; }
+.forecast-summary > div:first-child dd { color: #075e54; font-size: 26px; }
+.forecast-summary small { display: block; margin-top: 5px; color: #52645b; }
+.forecast-figure { margin: 24px 0; }
+.forecast-figure figcaption { font-weight: bold; margin-bottom: 10px; }
+.forecast-chart-wrap { overflow-x: auto; }
+.forecast-figure svg { display: block; width: 100%; height: auto; min-height: 170px; }
+.forecast-chart-grid { stroke: #dce6df; stroke-width: 1; }
+.forecast-chart-line { fill: none; stroke: #087461; stroke-width: 3; stroke-linejoin: round; }
+.forecast-chart-point { fill: #087461; stroke: white; stroke-width: 1.5; }
+.forecast-chart-label { fill: #52645b; font: 14px Arial, sans-serif; }
+.forecast-table caption { text-align: left; font-weight: bold; padding: 0 0 12px; color: #075e54; }
+.forecast-table th, .forecast-table td { vertical-align: top; line-height: 1.45; }
+.forecast-table td:last-child { font-variant-numeric: tabular-nums; }
+.forecast-metrics { font-size: 14px; }
+.forecast-metrics th[scope="row"] { background: white; font-weight: normal; min-width: 170px; }
+.forecast-metrics th small { display: block; font-size: 12px; margin-top: 5px; color: #52645b; }
+.forecast-metrics td:last-child { min-width: 190px; }
+.forecast-divider { border: 0; border-top: 1px solid #dbe7e0; margin: 28px 0; }
+@media (max-width: 1000px) {
+    .forecast-summary { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 700px) {
+    .nav-links { gap: 2px; }
+    .nav-links a { padding: 8px; }
+    .forecast-page { width: calc(100% - 24px); }
+    .forecast-page .content-panel { padding: 18px 14px; }
+    .forecast-form label, .forecast-form label:first-child { flex: 1 1 100%; min-width: 0; }
+    .forecast-form button { flex: 1 1 auto; }
+    .forecast-figure svg { min-width: 600px; }
+    .forecast-summary { grid-template-columns: 1fr; gap: 10px; }
+    .forecast-summary > div { padding: 12px; }
+    .forecast-table { display: table; white-space: normal; min-width: 530px; }
+    .forecast-metrics { min-width: 1050px; }
+}

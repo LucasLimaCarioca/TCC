@@ -1,0 +1,88 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<main class="page-container forecast-page" id="previsoes-app"
+      data-api="/api/previsoes" data-update-api="/api/previsoes/atualizar"
+      data-job-api="/api/previsoes/tarefas/">
+    <section class="content-panel" aria-labelledby="previsoes-titulo">
+        <div class="section-header">
+            <h1 id="previsoes-titulo">Previsões de demanda</h1>
+            <p>Consulte a demanda estimada para planejar o estoque. Previsões são estimativas, não pedidos confirmados.</p>
+        </div>
+        <form id="previsao-filtros" class="forecast-form">
+            <label>Produto
+                <select name="codigo_produto" id="previsao-produto"><option value="">Todos os produtos — visão geral</option></select>
+            </label>
+            <label>Agrupamento
+                <select name="granularidade"><option value="diaria">Diário</option><option value="semanal">Semanal</option><option value="mensal">Mensal</option></select>
+            </label>
+            <label>De <input name="data_inicio" type="date"></label>
+            <label>Até <input name="data_fim" type="date"></label>
+            <button type="submit" class="primary-button">Aplicar filtros</button>
+            <button type="button" id="previsao-limpar" class="forecast-secondary">Limpar filtros</button>
+        </form>
+        <p class="forecast-help">A visão geral soma as previsões dos produtos com histórico elegível. Um produto sem previsão não representa demanda zero.</p>
+        <p id="previsao-status" role="status" aria-live="polite">Carregando a previsão publicada…</p>
+        <p id="previsao-erro" class="forecast-notice forecast-danger" role="alert" hidden></p>
+        <p id="previsao-anterior" class="forecast-notice" hidden>O painel mantém a consulta anterior enquanto a nova consulta é carregada.</p>
+        <p id="previsao-vazia" class="forecast-notice" hidden>Nenhuma previsão disponível para esta seleção.</p>
+        <p id="previsao-desatualizada" class="forecast-notice forecast-warning" hidden>A cobertura publicada está desatualizada. Atualize a previsão antes de usar estes valores para planejar o estoque.</p>
+    </section>
+
+    <section class="content-panel" id="previsao-painel" aria-labelledby="previsao-resultado-titulo" hidden>
+        <div class="section-header"><h2 id="previsao-resultado-titulo">Demanda prevista</h2><p id="previsao-selecao"></p></div>
+        <dl class="forecast-summary">
+            <div><dt>Total no período selecionado</dt><dd id="previsao-total">—</dd><small>unidades previstas</small></div>
+            <div><dt>Período selecionado</dt><dd id="previsao-cobertura">—</dd></div>
+            <div><dt>Histórico utilizado até</dt><dd id="previsao-corte">—</dd></div>
+            <div><dt>Publicação</dt><dd id="previsao-publicacao">—</dd></div>
+        </dl>
+        <p id="previsao-cobertura-completa" class="forecast-help"></p>
+        <figure class="forecast-figure">
+            <figcaption id="previsao-grafico-titulo">Demanda por período (unidades)</figcaption>
+            <div class="forecast-chart-wrap" role="region" aria-label="Gráfico da demanda prevista" tabindex="0">
+                <svg id="previsao-grafico" viewBox="0 0 900 290" role="img" aria-labelledby="previsao-grafico-titulo previsao-grafico-descricao"></svg>
+            </div>
+            <p id="previsao-grafico-descricao" class="forecast-help">O gráfico apresenta a tendência. Consulte os valores completos na tabela abaixo.</p>
+        </figure>
+        <div class="stock-table-wrap forecast-table-wrap" role="region" aria-label="Tabela da demanda prevista" tabindex="0">
+            <table class="data-table forecast-table">
+                <caption>Valores previstos por período</caption>
+                <thead><tr><th scope="col">Período</th><th scope="col">Cobertura efetiva</th><th scope="col">Quantidade prevista</th></tr></thead>
+                <tbody id="previsao-periodos"></tbody>
+            </table>
+        </div>
+        <p class="forecast-help">Semanas vão de segunda a domingo. Períodos parciais incluem somente os dias cobertos pela seleção. Quantidades fracionárias representam a estimativa do modelo.</p>
+    </section>
+
+    <section class="content-panel" aria-labelledby="previsao-modelos-titulo">
+        <div class="section-header"><h2 id="previsao-modelos-titulo">Modelos, avaliação e atualização</h2><p>A seleção do modelo usa a validação temporal. O teste final compara o resultado com duas referências simples, sem garantir melhora futura. As métricas vêm da validação e do teste anteriores ao ajuste final com o histórico disponível.</p></div>
+        <div id="previsao-avaliacao" hidden>
+            <p id="previsao-modelos"></p>
+            <p class="forecast-help">MAE e RMSE medem o erro em unidades; WAPE e sMAPE, em porcentagem. Valores menores indicam menor erro. Na visão geral, a avaliação é exibida por produto, sem calcular uma média entre produtos.</p>
+            <div class="stock-table-wrap forecast-table-wrap" role="region" aria-label="Avaliação temporal por produto" tabindex="0">
+                <table class="data-table forecast-table forecast-metrics">
+                    <caption>Comparação no teste final por produto</caption>
+                    <thead><tr><th scope="col">Produto e janela</th><th scope="col">Modelo</th><th scope="col">MAE na validação</th><th scope="col">MAE no teste</th><th scope="col">RMSE no teste</th><th scope="col">WAPE no teste</th><th scope="col">sMAPE no teste</th><th scope="col">Resultado</th></tr></thead>
+                    <tbody id="previsao-metricas"></tbody>
+                </table>
+            </div>
+        </div>
+        <p id="previsao-sem-avaliacao">A avaliação aparecerá quando houver uma previsão publicada.</p>
+        <hr class="forecast-divider">
+        <h3>Atualizar previsão</h3>
+        <p>O recálculo ocorre em segundo plano. A publicação atual continua disponível durante o processamento e também se a atualização falhar.</p>
+        <form id="previsao-atualizar" class="forecast-form">
+            <label>Utilizar histórico até <input name="data_corte" type="date" max="{{ max_data_corte }}" required></label>
+            <label>Prever os próximos (dias) <input name="horizonte_dias" type="number" min="1" max="366" step="1" value="28" required></label>
+            <button type="submit" class="primary-button">Atualizar previsão</button>
+        </form>
+        <p id="previsao-atualizacao-info" class="forecast-help">Informe uma data de corte com o dia já encerrado. A atualização depende do histórico revisado e da comunicação com os agentes.</p>
+        <p id="previsao-tarefa-status" role="status" aria-live="polite"></p>
+        <p id="previsao-tarefa-erro" class="forecast-notice forecast-danger" role="alert" hidden></p>
+        <button id="previsao-retomar" type="button" class="forecast-secondary" hidden>Retomar acompanhamento</button>
+        <noscript><p class="forecast-notice">Ative o JavaScript para consultar e atualizar as previsões.</p></noscript>
+    </section>
+</main>
+<script src="{{ url_for('static', filename='js/previsoes.js') }}" defer></script>
+{% endblock %}

@@ -221,6 +221,10 @@ class PrevisaoService:
         except Exception:
             raise PrevisaoError("STORAGE_ERROR", "Não foi possível consultar a execução de previsão.") from None
 
+    def painel(self, codigo_produto=None, granularidade="diaria", data_inicio=None, data_fim=None):
+        from app.services.previsao_painel_service import painel
+        return painel(self, codigo_produto, granularidade, data_inicio, data_fim)
+
     def recalcular(self, data_corte, horizonte_dias, *, cancel_event=None):
         cutoff, horizon = _day(data_corte), _horizon(horizonte_dias)
         if cutoff >= hoje_manaus():

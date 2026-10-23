@@ -1,7 +1,7 @@
 """Ponte síncrona para Flask; as corrotinas executam no loop dedicado do runtime."""
 
 from app.agents.protocol import (BAIXA_VENDA, DISPONIBILIDADE, PING, PREVISAO,
-                                 PREVISAO_ATUALIZAR, PREVISAO_STATUS)
+                                 PREVISAO_ATUALIZAR, PREVISAO_PAINEL, PREVISAO_STATUS)
 from uuid import uuid4
 
 
@@ -47,6 +47,12 @@ class AgentGateway:
     def atualizar_previsao(self, data_corte, horizonte_dias=28):
         return self.request("estoque", "previsao", PREVISAO_ATUALIZAR, {
             "data_corte": data_corte, "horizonte_dias": horizonte_dias,
+        })
+
+    def consultar_painel_previsao(self, codigo_produto=None, granularidade="diaria", data_inicio=None, data_fim=None):
+        return self.request("estoque", "previsao", PREVISAO_PAINEL, {
+            "codigo_produto": codigo_produto, "granularidade": granularidade,
+            "data_inicio": data_inicio, "data_fim": data_fim,
         })
 
     def status_previsao(self, job_id):

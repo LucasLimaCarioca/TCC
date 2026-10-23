@@ -60,10 +60,13 @@ def create_app(test_config=None):
     from app.routes.venda_routes import venda_bp
     from app.routes.estoque_routes import estoque_bp
     from app.routes.produto_routes import produto_bp
+    from app.routes.previsao_routes import previsao_bp, protect_forecast_access_logs
 
     app.register_blueprint(venda_bp)
     app.register_blueprint(estoque_bp)
     app.register_blueprint(produto_bp)
+    app.register_blueprint(previsao_bp)
+    protect_forecast_access_logs()
 
     from app.agents.base_agent import AgentUnavailable, RemoteFailure
     from app.services.estoque_service import EstoqueError

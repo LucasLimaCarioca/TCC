@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from app.database import db
@@ -6,7 +8,8 @@ from app.models.produto import Produto
 
 
 @pytest.mark.parametrize("rota,titulo", [
-    ("/", "Atendimento"), ("/estoque", "Controle de Estoque"), ("/vendas", "Vendas"),
+    ("/", "Atendimento"), ("/estoque", "Controle de Estoque"),
+    ("/previsoes", "Previsões"), ("/vendas", "Vendas"),
 ])
 def test_telas_principais(client, rota, titulo):
     response = client.get(rota)
@@ -19,7 +22,7 @@ def test_catalogo_redireciona_para_tela_principal_estoque(client):
     assert response.status_code == 302
     assert response.headers["Location"] == "/estoque"
     page = client.get("/estoque")
-    assert 'href="/estoque">Estoque</a>' in page.get_data(as_text=True)
+    assert re.search(r'<a\b[^>]*\bhref="/estoque"[^>]*>Estoque</a>', page.get_data(as_text=True))
 
 
 @pytest.mark.parametrize("rota,chave_id", [("/api/produtos", "id"), ("/api/estoque", "produto_id")])

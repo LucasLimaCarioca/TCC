@@ -16,16 +16,17 @@ PING = "infra.ping"
 DISPONIBILIDADE = "estoque.disponibilidade"
 BAIXA_VENDA = "estoque.baixa_venda"
 PREVISAO = "previsao.consulta"
+PREVISAO_PAINEL = "previsao.painel"
 PREVISAO_ATUALIZAR = "previsao.atualizar"
 PREVISAO_STATUS = "previsao.status"
 PREVISAO_PUBLICADA = "previsao.publicada"
-ONTOLOGIES = {PING, DISPONIBILIDADE, BAIXA_VENDA, PREVISAO,
+ONTOLOGIES = {PING, DISPONIBILIDADE, BAIXA_VENDA, PREVISAO, PREVISAO_PAINEL,
               PREVISAO_ATUALIZAR, PREVISAO_STATUS, PREVISAO_PUBLICADA}
 JIDS = {name: f"{name}@localhost" for name in ("atendimento", "estoque", "previsao")}
 PEERS = {"atendimento": {"estoque"}, "estoque": {"atendimento", "previsao"},
          "previsao": {"estoque"}}
 OPERATIONS = {"atendimento": {PING}, "estoque": {PING, DISPONIBILIDADE, BAIXA_VENDA, PREVISAO_PUBLICADA},
-              "previsao": {PING, PREVISAO, PREVISAO_ATUALIZAR, PREVISAO_STATUS}}
+              "previsao": {PING, PREVISAO, PREVISAO_PAINEL, PREVISAO_ATUALIZAR, PREVISAO_STATUS}}
 
 
 class ProtocolError(ValueError):
@@ -135,6 +136,151 @@ def _forecast_response(payload):
         _require(sum(quantities, Decimal(0)) == _quantity(payload["total_previsto"]))
 
 
+def _keys(value, expected):
+    _require(type(value) is dict and set(value) == set(expected))
+
+
+def _panel_code(value):
+    return (_text(value, 64) and not any(
+        char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value))
+
+
+def _panel_text(value, limit):
+    return _text(value, limit) and not any(ord(char) < 32 or ord(char) == 127 for char in value)
+
+
+def _panel_amount(value):
+    _require(type(value) is str and len(value) <= 400 and re.fullmatch(
+        r"(?:0|[1-9][0-9]*)(?:\.[0-9]{0,8}[1-9])?", value) is not None)
+    return Decimal(value)
+
+
+def _panel_metric(value):
+    if value is None:
+        return
+    _keys(value, {"mae", "rmse", "wape", "smape"})
+    _require(all((key == "wape" and item is None) or _number(item)
+                 for key, item in value.items()))
+
+
+def _panel_request(payload):
+    _keys(payload, {"codigo_produto", "granularidade", "data_inicio", "data_fim"})
+    _require(payload["codigo_produto"] is None or _panel_code(payload["codigo_produto"]))
+    _require(payload["granularidade"] in {"diaria", "semanal", "mensal"})
+    start = None if payload["data_inicio"] is None else _date(payload["data_inicio"])
+    end = None if payload["data_fim"] is None else _date(payload["data_fim"])
+    if start is not None and end is not None:
+        _require(0 <= (end - start).days < 366)
+
+
+def _panel_response(payload):
+    _keys(payload, {"execucao_id", "versao", "produtos", "selecao", "cobertura",
+                    "total_previsto", "periodos", "modelos", "avaliacoes", "atualizacao"})
+    _require(type(payload["execucao_id"]) is str and re.fullmatch(
+        r"previsao-[a-f0-9]{32}", payload["execucao_id"]) is not None)
+    _require(payload["versao"] == "forecast-v1")
+    selection = payload["selecao"]
+    _panel_request(selection)
+    _require(selection["data_inicio"] is not None and selection["data_fim"] is not None)
+    start, end = _date(selection["data_inicio"]), _date(selection["data_fim"])
+    coverage = payload["cobertura"]
+    _keys(coverage, {"inicio", "fim", "data_corte", "gerada_em", "desatualizada"})
+    first, last, cutoff = _date(coverage["inicio"]), _date(coverage["fim"]), _date(coverage["data_corte"])
+    _require(first == cutoff + timedelta(days=1) and 0 <= (last - first).days < 366
+             and first <= start <= end <= last)
+    _require(_text(coverage["gerada_em"], 40) and type(coverage["desatualizada"]) is bool)
+    generated = datetime.fromisoformat(coverage["gerada_em"])
+    _require(generated.utcoffset() is not None)
+    products = payload["produtos"]
+    _require(type(products) is list and 0 < len(products) <= 10000)
+    codes = []
+    for product in products:
+        _keys(product, {"codigo_produto", "produto_id", "nome", "codigo_grupo", "categoria"})
+        _require(_panel_code(product["codigo_produto"]))
+        _require((product["produto_id"] is None and product["nome"] is None) or
+                 (_integer(product["produto_id"]) and _panel_text(product["nome"], 100)))
+        for field, limit in (("codigo_grupo", 64), ("categoria", 100)):
+            _require(product[field] is None or _panel_text(product[field], limit))
+        codes.append(product["codigo_produto"])
+    _require(codes == sorted(set(codes)))
+    selected = codes if selection["codigo_produto"] is None else [selection["codigo_produto"]]
+    _require(set(selected) <= set(codes))
+    periods = payload["periodos"]
+    _require(type(periods) is list and 0 < len(periods) <= 366)
+    next_day, quantities = start, []
+    for period in periods:
+        _keys(period, {"periodo_inicio", "periodo_fim", "cobertura_inicio", "cobertura_fim",
+                       "parcial", "quantidade_prevista"})
+        nominal_start, nominal_end = _date(period["periodo_inicio"]), _date(period["periodo_fim"])
+        covered_start, covered_end = _date(period["cobertura_inicio"]), _date(period["cobertura_fim"])
+        _require(nominal_start <= covered_start <= covered_end <= nominal_end
+                 and covered_start == next_day and covered_end <= end)
+        _require(covered_start == max(start, nominal_start) and covered_end == min(end, nominal_end))
+        _require(type(period["parcial"]) is bool and period["parcial"] ==
+                 (nominal_start != covered_start or nominal_end != covered_end))
+        frequency = selection["granularidade"]
+        if frequency == "diaria":
+            _require(nominal_start == nominal_end)
+        elif frequency == "semanal":
+            _require(nominal_start.weekday() == 0 and (nominal_end - nominal_start).days == 6)
+        else:
+            _require(nominal_start.day == 1 and nominal_end == date(nominal_start.year,
+                nominal_start.month, calendar.monthrange(nominal_start.year, nominal_start.month)[1]))
+        quantities.append(_panel_amount(period["quantidade_prevista"]))
+        next_day = covered_end + timedelta(days=1)
+    _require(next_day == end + timedelta(days=1))
+    with localcontext() as context:
+        context.prec = 400
+        _require(sum(quantities, Decimal(0)) == _panel_amount(payload["total_previsto"]))
+    allowed_models = {"naive", "seasonal_naive", "random_forest", "hist_gradient_boosting"}
+    models = payload["modelos"]
+    _require(type(models) is dict and bool(models) and set(models) <= allowed_models
+             and all(_integer(count) for count in models.values()) and sum(models.values()) == len(selected))
+    evaluations = payload["avaliacoes"]
+    _require(type(evaluations) is list and len(evaluations) == len(selected))
+    observed_models, evaluated_codes = {}, []
+    for evaluation in evaluations:
+        _keys(evaluation, {"codigo_produto", "modelo", "fallback", "motivo", "treino_inicio", "treino_fim",
+            "validacao", "teste_inicio", "teste_fim", "teste", "baselines", "melhor_que_baselines"})
+        code, model = evaluation["codigo_produto"], evaluation["modelo"]
+        _require(_panel_code(code) and model in allowed_models and type(evaluation["fallback"]) is bool
+                 and _panel_text(evaluation["motivo"], 4000))
+        _require(_date(evaluation["treino_inicio"]) <= _date(evaluation["treino_fim"]) == cutoff)
+        _panel_metric(evaluation["validacao"])
+        _panel_metric(evaluation["teste"])
+        _keys(evaluation["baselines"], {"naive", "seasonal_naive"})
+        for metric in evaluation["baselines"].values():
+            _panel_metric(metric)
+        if evaluation["fallback"]:
+            _require(model in {"naive", "seasonal_naive"} and evaluation["validacao"] is None
+                     and evaluation["teste"] is None and evaluation["teste_inicio"] is None
+                     and evaluation["teste_fim"] is None and evaluation["melhor_que_baselines"] is None
+                     and all(metric is None for metric in evaluation["baselines"].values()))
+        else:
+            _require(evaluation["validacao"] is not None and evaluation["teste"] is not None
+                     and all(metric is not None for metric in evaluation["baselines"].values()))
+            _require(_date(evaluation["treino_inicio"]) <= _date(evaluation["teste_inicio"]) <=
+                     _date(evaluation["teste_fim"]) <= cutoff)
+            better = evaluation["melhor_que_baselines"]
+            _require(type(better) is bool and better == (evaluation["teste"]["mae"] <
+                min(metric["mae"] for metric in evaluation["baselines"].values())))
+            if model in {"naive", "seasonal_naive"}:
+                _require(evaluation["teste"] == evaluation["baselines"][model])
+        observed_models[model] = observed_models.get(model, 0) + 1
+        evaluated_codes.append(code)
+    _require(evaluated_codes == selected and observed_models == models)
+    update = payload["atualizacao"]
+    _keys(update, {"disponivel", "data_corte_maxima", "data_corte_sugerida", "horizonte_dias"})
+    _require(type(update["disponivel"]) is bool and type(update["horizonte_dias"]) is int
+             and update["horizonte_dias"] == (last - first).days + 1)
+    if update["disponivel"]:
+        maximum = _date(update["data_corte_maxima"])
+        _require(update["data_corte_sugerida"] is None if cutoff > maximum else
+                 _date(update["data_corte_sugerida"]) == cutoff)
+    else:
+        _require(update["data_corte_maxima"] is None and update["data_corte_sugerida"] is None)
+
+
 def validate_payload(ontology, performative, payload):
     _require(type(payload) is dict)
     if performative == "failure":
@@ -180,6 +326,11 @@ def validate_payload(ontology, performative, payload):
         _require(payload["granularidade"] in {"diaria", "semanal", "mensal"})
     elif ontology == PREVISAO:
         _forecast_response(payload)
+    elif ontology == PREVISAO_PAINEL:
+        if performative == "request":
+            _panel_request(payload)
+        else:
+            _panel_response(payload)
     elif ontology == PREVISAO_ATUALIZAR:
         if performative == "request":
             _require(set(payload) == {"data_corte", "horizonte_dias"})

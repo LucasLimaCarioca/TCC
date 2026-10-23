@@ -4,6 +4,7 @@
 <head>
 
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
 
     <title>{{ titulo }}</title>
 
@@ -20,10 +21,11 @@
         Atendimento Virtual - Sorveteria
     </div>
 
-    <nav class="nav-links">
-        <a href="{{ url_for('venda.simulacao_venda') }}">Atendimento</a>
-        <a href="{{ url_for('estoque.tela_estoque') }}">Estoque</a>
-        <a href="{{ url_for('venda.tela_vendas') }}">Vendas</a>
+    <nav class="nav-links" aria-label="Navegação principal">
+        <a href="{{ url_for('venda.simulacao_venda') }}"{% if request.endpoint == 'venda.simulacao_venda' %} aria-current="page"{% endif %}>Atendimento</a>
+        <a href="{{ url_for('estoque.tela_estoque') }}"{% if request.endpoint == 'estoque.tela_estoque' %} aria-current="page"{% endif %}>Estoque</a>
+        <a href="{{ url_for('previsao.tela_previsoes') }}"{% if request.endpoint == 'previsao.tela_previsoes' %} aria-current="page"{% endif %}>Previsões</a>
+        <a href="{{ url_for('venda.tela_vendas') }}"{% if request.endpoint == 'venda.tela_vendas' %} aria-current="page"{% endif %}>Vendas</a>
     </nav>
 </header>
 
