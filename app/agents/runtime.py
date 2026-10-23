@@ -24,6 +24,7 @@ class AgentRuntime:
         self.thread = None
         self.server = None
         self._mutex = threading.Lock()
+        self._predictive_startup_task = None
 
     def start(self):
         with self._mutex:
@@ -87,12 +88,13 @@ class AgentRuntime:
                     "atendimento": AtendimentoSPADEAgent(passwords["atendimento"], self.app, port, self._audit,
                                                          gateway=AgentGateway(self)),
                     "estoque": EstoqueAgent(passwords["estoque"], self.app, port, self._audit),
-                    "previsao": PrevisaoAgent(passwords["previsao"], port, self._audit),
+                    "previsao": PrevisaoAgent(passwords["previsao"], self.app, port, self._audit),
                 }
                 for agent in self.agents.values():
                     self.startup_stage = agent.role
                     await agent.start()
             self.running = True
+            self._predictive_startup_task = asyncio.create_task(self._iniciar_alertas_preventivos())
             self._ready.set_result(None)
             await self._stopping.wait()
         except Exception as error:
@@ -106,6 +108,20 @@ class AgentRuntime:
         finally:
             self.running = False
             await self._shutdown()
+
+    async def _iniciar_alertas_preventivos(self):
+        """Aguarda a carga privada sem atrasar o estado online do transporte."""
+        previsao = self.agents.get("previsao")
+        estoque = self.agents.get("estoque")
+        initialize = getattr(previsao, "aguardar_inicializacao", None)
+        schedule = getattr(estoque, "agendar_alertas", None)
+        if not callable(initialize) or not callable(schedule):
+            return
+        try:
+            await initialize()
+            schedule()
+        except Exception:
+            self.app.logger.warning("Não foi possível agendar a avaliação inicial de alertas preventivos.")
 
     async def _start_server(self):
         context = multiprocessing.get_context("spawn")
@@ -125,6 +141,10 @@ class AgentRuntime:
     async def _shutdown(self):
         from spade.container import Container
 
+        if self._predictive_startup_task is not None:
+            self._predictive_startup_task.cancel()
+            await asyncio.gather(self._predictive_startup_task, return_exceptions=True)
+            self._predictive_startup_task = None
         for agent in self.agents.values():
             try:
                 await asyncio.wait_for(agent.stop(), timeout=2)

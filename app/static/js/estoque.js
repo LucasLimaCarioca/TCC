@@ -58,9 +58,21 @@ bind("sincronizar-form", async () => {
     window.location.reload();
 });
 bind("risco-form", async (form) => {
-    const result = await send(`/api/estoque/risco/${form.elements.produto_id.value}`, "GET");
-    document.getElementById("risco-feedback").textContent = result.mensagem || (result.risco ? "O saldo projetado fica abaixo do estoque mínimo." : "O saldo projetado atende ao estoque mínimo.");
+    const params = new URLSearchParams({horizonte_dias: form.elements.horizonte_dias.value});
+    const result = await send(`/api/estoque/risco/${form.elements.produto_id.value}?${params}`, "GET");
+    document.getElementById("risco-feedback").textContent = result.mensagem || (result.risco === true ? "O saldo projetado fica abaixo do estoque mínimo." : result.risco === false ? "O saldo projetado atende ao estoque mínimo." : "Risco desconhecido: a previsão está indisponível. Isso não representa demanda zero.");
     feedback.textContent = "Consulta concluída.";
+});
+bind("preventivo-form", async (form) => {
+    const result = await send(`/api/estoque/alertas/preventivos/${form.elements.produto_id.value}`, "POST", {
+        horizonte_dias: Number(form.elements.horizonte_dias.value)
+    });
+    if (result.risco !== true && result.risco !== false) {
+        document.getElementById("preventivo-feedback").textContent = result.mensagem || "Risco desconhecido: não foi possível obter uma previsão válida. Os alertas anteriores foram preservados.";
+        feedback.textContent = "Os alertas anteriores foram preservados.";
+        return;
+    }
+    window.location.reload();
 });
 
 for (const id of ["movimentacao-form", "minimo-form"]) {

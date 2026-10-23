@@ -23,7 +23,21 @@ inclui o controle manual de produtos acabados e matérias-primas.
 Na Fase 5, um comando local importa o histórico diário já preparado, preserva
 grupo/categoria e permite reconstruir séries por código externo. Consulte o
 [guia de importação](docs/FASE_5_IMPORTACAO.md) para validação, repetição segura
-e relatório privado. O treinamento permanece para a Fase 6.
+e relatório privado.
+Na Fase 6, o motor local avalia baselines e modelos por produto em ordem
+temporal, gera previsões coerentes diária/semanal/mensal e salva resultados e
+artefatos privados. Consulte o [guia do motor](docs/FASE_6_PREVISAO.md).
+Na Fase 7, `PrevisaoAgent` responde ao Estoque por XMPP, publica previsões e
+métricas no SQLite e executa recálculos sob comando em segundo plano. A visão
+geral pode ser consultada sem vincular produtos ao catálogo; consultas por item
+exigem `Produto.codigo_externo` explicitamente associado. Consulte o
+[guia do agente de previsão](docs/FASE_7_AGENTE_PREVISAO.md) para configuração,
+migração e comandos locais.
+Na Fase 8, o Estoque registra alertas preventivos quando a demanda prevista
+deixa o saldo projetado abaixo do mínimo. A atualização automática reúne
+solicitações após mudanças de estoque ou previsão; a tela também permite
+consultar o risco e solicitar uma avaliação. Previsão indisponível preserva os
+alertas anteriores. Consulte o [guia dos alertas](docs/FASE_8_ALERTAS_PREVENTIVOS.md).
 
 ## Arquitetura
 
@@ -78,11 +92,12 @@ Histórico da conversa é salvo por cliente
 - CSS: estilização da interface.
 - SPADE 4.1.4 / PyJabber 0.4.5: agentes e comunicação XMPP local.
 
-### Dependências previstas para etapas futuras do TCC
+### Dados e previsão
 
 
-- Pandas: manipulação de dados.
-- Scikit-learn: modelos de previsão/demanda em fases futuras.
+- Pandas e NumPy: séries, features e cálculos do motor de previsão.
+- Scikit-learn: candidatos Random Forest e HistGradientBoosting da Fase 6.
+- threadpoolctl: limita paralelismo nativo durante ajuste e inferência.
 - Streamlit: dependência herdada, sem uso no código atual; a interface continua em Flask.
 
 As dependências diretas têm versões fixadas em `requirements.txt`, incluindo SQLAlchemy,
@@ -114,6 +129,15 @@ TCC/
 │   │   ├── historico_conversa.py
 │   │   ├── produto.py
 │   │   └── venda.py
+│   ├── forecasting/
+│   │   ├── calendar.py
+│   │   ├── dataset.py
+│   │   ├── features.py
+│   │   ├── baselines.py
+│   │   ├── models.py
+│   │   ├── evaluation.py
+│   │   ├── aggregation.py
+│   │   └── service.py
 │   ├── routes/
 │   │   ├── estoque_routes.py
 │   │   ├── produto_routes.py
@@ -134,8 +158,9 @@ TCC/
 │   │   └── vendas.html
 │   ├── app.py
 │   └── database.py
-├── instance/
-│   └── sorvetes.db
+├── data/                     # privado, ignorado pelo Git
+│   └── artifacts/
+│       └── sorvetes.db
 ├── create_db.py
 ├── seed.py
 ├── run.py
@@ -152,7 +177,8 @@ TCC/
 │   └── BASELINE_FASE_0.md
 ├── scripts/
 │   ├── prepare_history.py
-│   └── import_history.py
+│   ├── import_history.py
+│   └── forecast_history.py
 └── README.md
 ```
 
@@ -177,9 +203,14 @@ Define a função `create_app(test_config=None)`, responsável por:
 - inicializar o SQLAlchemy;
 - registrar os blueprints de atendimento, produtos e estoque.
 
-Sem argumentos, mantém `sqlite:///sorvetes.db`, em `instance/`. Nos testes,
+Sem argumentos, usa o caminho absoluto `data/artifacts/sorvetes.db`, validado
+como privado e ignorado pelo Git. Nos testes,
 a configuração é substituída antes de inicializar o SQLAlchemy para usar
 um arquivo SQLite temporário exclusivo de cada teste.
+`TESTING=True` sem URI explícita usa memória. Diretórios e arquivos novos do
+banco padrão usam permissões privadas. Se existir apenas o banco legado em
+`instance/`, a fábrica exige a transferência antes de iniciar, evitando abrir
+um banco vazio por engano.
 
 ### `app/database.py`
 
@@ -313,7 +344,9 @@ Cada item vendido é salvo como um registro de venda. Um pedido com dois produto
 
 Nesta fase foram criadas estruturas e restrições de integridade. As rotinas de
 movimentação e alertas imediatos foram implementadas na Fase 4; a Fase 5 importa
-o histórico diário preparado. Previsão permanece para as fases seguintes.
+o histórico diário preparado. A Fase 6 implementa o motor local de previsão;
+a Fase 7 integra esse motor ao agente e persiste execuções, métricas e períodos
+de previsão com quantidades decimais exatas.
 
 A Fase 4 acrescenta `OperacaoEstoque`, com recibo persistente de operação, e
 `MovimentacaoEstoque.venda_id`, único, para vincular a baixa à venda confirmada.
@@ -456,8 +489,15 @@ Tela principal de controle que mostra:
 - matérias-primas, mínimos configuráveis, alertas e movimentações.
 
 As consultas GET são somente leitura. Vendas e alterações de estoque/mínimo
-atualizam os alertas na própria transação; o botão **Sincronizar alertas** ou
-POST `/api/estoque/alertas/sincronizar` reconcilia explicitamente os itens legados.
+atualizam os alertas de estoque mínimo na própria transação; o botão de
+sincronização ou POST `/api/estoque/alertas/sincronizar` revisa itens legados.
+Os alertas de risco futuro são reavaliados separadamente por XMPP após mudanças
+de produtos ou da previsão, quando a atualização automática está ativa.
+**Atualizar alerta deste produto** ou
+POST `/api/estoque/alertas/preventivos/<produto_id>` solicita essa avaliação
+explicitamente; **Consultar risco** não altera registros. O horizonte padrão
+é de sete dias e pode ser configurado. Indisponibilidade deixa o risco
+desconhecido e conserva alertas anteriores.
 
 ### Vendas
 
@@ -604,7 +644,7 @@ python -m pytest
 
 Não é necessário executar `create_db.py` ou `seed.py` para testar. Cada teste
 cria seu próprio banco em uma pasta temporária do pytest, sem usar
-`instance/sorvetes.db`. As fixtures preparam os 11 produtos e cinco clientes
+`data/artifacts/sorvetes.db`. As fixtures preparam os 11 produtos e cinco clientes
 do baseline, sem importar os scripts de inicialização.
 
 Os oito casos do TCC I estão em `tests/test_regressao_tcc_i.py`: catálogo,
@@ -673,8 +713,22 @@ Veja o [guia de preparação dos dados](docs/PREPARACAO_DADOS.md).
 
 Fases 0, preparação dos dados, 1 (modelos/migrações), 2 (refatoração do
 atendimento), 3 (infraestrutura SPADE/XMPP) e 4 (Controle de Estoque) concluídas.
-A próxima etapa é a Fase 5, importação do histórico diário preparado.
-Detalhes: [Fase 3](docs/FASE_3_SPADE_XMPP.md) e [Fase 4](docs/FASE_4_ESTOQUE.md).
+A Fase 5 tem o importador implementado e o banco definitivo configurado em
+`data/artifacts/sorvetes.db`. O histórico atual foi preparado, importado e
+reimportado sem duplicação. A revisão privada registrou a decisão de desconsiderar
+os registros apontados como fora do expediente apenas no recorte de análise,
+preservando o histórico canônico. A Fase 6 implementa o motor de previsão,
+com calendário verificado, avaliação temporal e artefatos locais privados.
+A Fase 7 implementa o Agente de Previsão, consultas e recálculo por XMPP e
+persistência transacional das execuções. A consulta de risco do Estoque exige
+cobertura iniciando hoje e vínculo explícito do produto ao histórico.
+A Fase 8 implementa alertas preventivos persistentes, reconciliação automática
+e sob comando, com deduplicação e resolução somente após avaliação válida.
+Detalhes: [Fase 3](docs/FASE_3_SPADE_XMPP.md),
+[Fase 4](docs/FASE_4_ESTOQUE.md), [Fase 5](docs/FASE_5_IMPORTACAO.md),
+[Fase 6](docs/FASE_6_PREVISAO.md) e
+[Fase 7](docs/FASE_7_AGENTE_PREVISAO.md) e
+[Fase 8](docs/FASE_8_ALERTAS_PREVENTIVOS.md).
 
 Funcionalidades já implementadas:
 
@@ -694,7 +748,12 @@ Funcionalidades já implementadas:
 - cadastro e controle manual de matérias-primas;
 - mínimos configuráveis e alertas para saldo igual ou inferior ao mínimo;
 - consulta e confirmação Atendimento → Estoque por XMPP real;
-- consulta Estoque → Previsão, com estado indisponível enquanto o modelo não existe;
+- consulta Estoque → Previsão por XMPP, por produto associado ou visão geral;
+- avaliação temporal e previsão local por produto, com agregações diária, semanal e mensal;
+- persistência de previsões e métricas, com publicação atômica e repetição segura;
+- recálculo de previsão sob comando, com acompanhamento em segundo plano;
+- alertas preventivos por saldo projetado, com horizonte configurável e atualização por XMPP;
+- preservação dos alertas quando a previsão está indisponível ou desatualizada;
 - repetição segura por chave de operação persistente;
 - manutenção do pedido e da chave após falha de confirmação, com substituição ou cancelamento;
 - tela principal de estoque em `/estoque` e consultas GET somente leitura;
@@ -704,9 +763,10 @@ Funcionalidades já implementadas:
 ## Limitações atuais
 
 - O agente usa regras simples por palavras-chave.
-- Previsão tem infraestrutura de comunicação; importação, treinamento e previsão
-  serão implementados nas fases seguintes. Alertas preditivos persistentes ficam
-  para a Fase 8.
+- A tela completa de previsões permanece para a Fase 9. Treinamento periódico
+  não está ativado; a reconciliação dos alertas usa a execução de previsão disponível.
+- Consultas de previsão por produto exigem associação explícita por código
+  externo; o sistema informa indisponibilidade quando ela não existe.
 - Ainda não há autenticação de usuários.
 - Matérias-primas têm controle manual; abatimento por venda depende de receitas/BOM.
 - Um pedido com múltiplos produtos gera múltiplos registros na tabela `vendas`.
@@ -717,5 +777,5 @@ Funcionalidades já implementadas:
 - melhorar interpretação de intenção;
 - criar uma entidade formal de pedido com múltiplos itens;
 - adicionar métricas para avaliação do protótipo;
-- criar agente de previsão de demanda;
+- implementar a tela completa de previsões;
 - exportar relatórios de vendas e atendimentos.

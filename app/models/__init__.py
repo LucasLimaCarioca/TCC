@@ -10,5 +10,6 @@ from app.models.movimentacao_estoque import MovimentacaoEstoque
 from app.models.alerta_estoque import AlertaEstoque
 from app.models.venda_historica import VendaHistorica
 from app.models.previsao_demanda import PrevisaoDemanda
+from app.models.previsao_execucao import PrevisaoExecucao
 from app.models.log_mensagem_agente import LogMensagemAgente
 from app.models.operacao_estoque import OperacaoEstoque

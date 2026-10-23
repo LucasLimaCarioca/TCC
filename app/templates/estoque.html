@@ -112,17 +112,39 @@
 
     <section class="content-panel">
         <h2>Alertas de estoque</h2>
-        <ul>{% for alerta in estoque.alertas if alerta.ativo %}<li>{{ alerta.mensagem }}</li>{% else %}<li>Nenhum alerta ativo.</li>{% endfor %}</ul>
+        <ul>
+            {% for alerta in estoque.alertas if alerta.ativo %}
+            <li>
+                <strong>{{ 'Risco futuro' if alerta.tipo_alerta == 'risco_futuro' else 'Estoque mínimo' }}:</strong>
+                {{ alerta.mensagem }}
+                {% set avaliacao = alerta.get('avaliacao') or {} %}
+                {% if alerta.tipo_alerta == 'risco_futuro' and avaliacao.get('atual') == false %}
+                <span role="status">Avaliação pendente: {{ avaliacao.get('motivo') or 'aguardando uma previsão válida para confirmar o risco atual.' }}</span>
+                {% endif %}
+            </li>
+            {% else %}<li>Nenhum alerta ativo.</li>{% endfor %}
+        </ul>
         <form id="sincronizar-form" class="stock-form">
-            <p>Para revisar itens cadastrados antes deste controle, sincronize os alertas. Entradas, saídas, ajustes, vendas e alterações de mínimo já os atualizam automaticamente.</p>
-            <button type="submit">Sincronizar alertas</button>
+            <p>Os alertas de estoque mínimo são atualizados com as movimentações, vendas e alterações do mínimo. Para revisar cadastros anteriores, use a sincronização.</p>
+            <button type="submit">Sincronizar alertas de estoque mínimo</button>
         </form>
         <form id="risco-form" class="stock-form">
             <h3>Consultar risco futuro</h3>
             <label>Produto <select name="produto_id" required>{% for produto in produtos %}<option value="{{ produto.id }}">{{ produto.nome }}</option>{% endfor %}</select></label>
-            <button type="submit">Consultar próximos 7 dias</button>
+            <label>Horizonte (dias) <input name="horizonte_dias" type="number" min="1" max="366" step="1" value="{{ horizonte_preventivo_dias }}" required></label>
+            <p>A consulta apresenta a projeção, sem alterar os alertas registrados.</p>
+            <button type="submit">Consultar risco</button>
         </form>
         <p id="risco-feedback" role="status" aria-live="polite"></p>
+        <form id="preventivo-form" class="stock-form">
+            <h3>Atualizar alerta preventivo</h3>
+            <label>Produto <select name="produto_id" required>{% for produto in produtos %}<option value="{{ produto.id }}">{{ produto.nome }}</option>{% endfor %}</select></label>
+            <label>Horizonte (dias) <input name="horizonte_dias" type="number" min="1" max="366" step="1" value="{{ horizonte_preventivo_dias }}" required></label>
+            <p>Quando a atualização automática está ativa, o sistema reavalia produtos após mudanças de estoque, do mínimo ou da previsão. Você também pode solicitar uma avaliação agora.</p>
+            <p>Sem previsão válida, o risco fica desconhecido e os alertas anteriores são preservados. Isso não representa demanda zero. Matérias-primas continuam usando apenas estoque mínimo.</p>
+            <button type="submit">Atualizar alerta deste produto</button>
+        </form>
+        <p id="preventivo-feedback" role="status" aria-live="polite"></p>
     </section>
 
     <section class="content-panel">

@@ -35,6 +35,19 @@ sem INSERT, UPDATE, DELETE ou `BEGIN IMMEDIATE`. O comando de importação grava
 no banco configurado por `create_app()`. Não cria tabelas, não executa seed e não
 migra o banco implicitamente; bancos sem schema exigem `python create_db.py`.
 
+O banco padrão aprovado é `data/artifacts/sorvetes.db`, resolvido por caminho
+absoluto a partir da raiz do projeto, independentemente do diretório atual.
+O banco anterior em `instance/sorvetes.db` foi transferido pela API de backup
+SQLite, com comparação integral dos registros, verificação de integridade e
+foreign keys. O original foi preservado para recuperação, e existe também um
+backup privado em `data/artifacts/backups/`; a aplicação usa apenas o novo padrão.
+
+A fábrica cria arquivos novos com permissão 0600 e novos diretórios com 0700.
+Se somente o banco legado existir, a inicialização falha orientando a
+transferência, em vez de criar um banco vazio. Configuração explícita de URI
+continua disponível; testes não preparam o banco real e `TESTING=True` sem URI
+usa SQLite em memória.
+
 Códigos de saída:
 
 - `0`: validação ou importação concluída;
@@ -161,6 +174,64 @@ cópia privada do banco dentro de `data/artifacts/`: repetição sem novas linha
 preservação do catálogo/saldos/demais registros e verificações de integridade
 e referências aprovadas. Essa validação não alterou o banco nem o CSV originais.
 
+Após a definição do banco definitivo, a mudança de configuração acrescentou
+**nove testes**; a suíte completa passou com **375 testes**, mantendo os mesmos
+128 avisos legados. A transferência preservou o conteúdo anterior do banco.
+
+Na aplicação definitiva, verificou-se que o dataset preparado anteriormente
+estava ausente e o CSV atual tinha outro hash. A preparação foi reexecutada
+sobre a fonte atual; seu novo relatório aprovou schema, datas, quantidades,
+duplicatas e metadados. Esse novo dataset foi importado no banco definitivo e
+reimportado sem novas linhas ou alterações das observações existentes. Catálogo,
+saldos e demais tabelas foram comparados e preservados. O CSV original não foi
+modificado. Todos os relatórios, manifestos e cópias permanecem em `data/`.
+
+## Revisão privada antes do treinamento
+
+Além das verificações automáticas, a revisão precisa conferir:
+
+- período esperado e data de corte da exportação;
+- significado da data de emissão e coerência com o calendário de operação;
+- distinção entre dias fechados e dias de operação sem observações;
+- feriados aplicáveis a cada ano, incluindo regras locais e eventuais pontos
+  facultativos observados pela fábrica;
+- unidade de quantidade por produto e eventuais mudanças de embalagem;
+- valores extremos, que podem ser vendas legítimas e não são removidos
+  automaticamente;
+- códigos sem associação ao catálogo, sem inferir vínculos por nome.
+
+A revisão atual está documentada em arquivos privados
+`data/reports/revisao-qualidade-<id>.md` e `.json`. Eles incluem os testes de
+integridade e persistência, perfil por código, lacunas, ocorrências fora do
+calendário informado e candidatos a valores extremos. A triagem usa o limite
+Q3 + 1,5 × IQR, com quantis inclusivos e pelo menos quatro observações; não
+constitui erro comprovado nem regra de exclusão.
+
+Foram identificadas datas em fins de semana e posteriores à referência da
+revisão. O usuário confirmou que são pedidos fora do expediente e autorizou
+desconsiderar esses registros. A decisão foi aplicada somente a um novo recorte
+privado de análise: sábados/domingos e datas posteriores à referência da revisão
+não entram nesse recorte. O CSV original, o dataset canônico e o histórico
+completo no banco foram preservados.
+
+O recorte está em `data/processed/revisao-decisoes-<id>/demanda_diaria_revisada.csv`,
+com as mesmas seis colunas. O relatório
+`data/reports/revisao-decisoes-<id>.json` registra os hashes de origem/recorte,
+regras, observações desconsideradas e reconciliação das quantidades por código.
+Uma versão `.md` orienta a leitura. Esse relatório de revisão não substitui o
+relatório de preparação exigido pelo importador; não se deve reimportar o recorte
+para sobrescrever o histórico completo. A consulta `serie_diaria()` continua
+retornando o histórico canônico; o motor futuro deve aplicar a decisão de revisão
+ou consumir o recorte e seu manifesto.
+
+Nenhum dia ausente foi convertido em demanda zero. Valores extremos foram
+preservados para análise, sem assumir erro comercial. A regra de fechamento em
+feriados foi confirmada; consolidar o calendário histórico aplicável e seu
+tratamento faz parte da Fase 6, antes de preencher lacunas ou treinar. A Fase 5
+não calculou nem excluiu feriados automaticamente, não treinou modelos e não
+implementou calendário preditivo.
+
 O relatório privado deve ser revisado antes de iniciar treinamento. Modelos,
-preenchimento de lacunas, validação temporal e previsão ficam para a Fase 6;
-o agente de Previsão permanece respondendo `NOT_IMPLEMENTED` até sua etapa.
+preenchimento de lacunas, validação temporal e previsão foram implementados na
+[Fase 6](FASE_6_PREVISAO.md), em execução separada da importação; o agente de
+Previsão permanece respondendo `NOT_IMPLEMENTED` até a integração da Fase 7.

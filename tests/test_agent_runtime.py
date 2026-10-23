@@ -2,15 +2,19 @@
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
 import socket
+from threading import Event, get_ident
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from app.agents.base_agent import AgentTimeout, AgentUnavailable, RemoteFailure
 from app.agents.config import RuntimeConfig
 from app.agents.gateway import AgentGateway
-from app.agents.protocol import BAIXA_VENDA, DISPONIBILIDADE, JIDS, PING, PREVISAO, ProtocolError, encode
+from app.agents.protocol import (BAIXA_VENDA, DISPONIBILIDADE, JIDS, PING, PREVISAO,
+                                 PREVISAO_ATUALIZAR, PREVISAO_STATUS, ProtocolError, encode)
 from app.agents.runtime import AgentRuntime
 from app.app import create_app
 from app.models.log_mensagem_agente import LogMensagemAgente
@@ -19,6 +23,24 @@ from app.models.movimentacao_estoque import MovimentacaoEstoque
 from app.models.produto import Produto
 from app.models.venda import Venda
 from app.services import estoque_service
+
+
+def fictitious_forecast_payload(product, total, *, horizon=7, start=None):
+    generated = datetime.now(ZoneInfo("America/Manaus"))
+    start = start or generated.date()
+    periods = []
+    for offset in range(horizon):
+        day = (start + timedelta(days=offset)).isoformat()
+        periods.append({"periodo_inicio": day, "periodo_fim": day,
+                        "cobertura_inicio": day, "cobertura_fim": day,
+                        "parcial": False, "quantidade_prevista": str(total) if offset == 0 else "0"})
+    return {"produto_id": product, "codigo_produto": "FICTICIO-001" if product else None,
+            "granularidade": "diaria", "horizonte_dias": horizon,
+            "data_corte": (start - timedelta(days=1)).isoformat(),
+            "cobertura_inicio": start.isoformat(), "cobertura_fim": periods[-1]["cobertura_fim"],
+            "total_previsto": str(total), "periodos": periods,
+            "modelo": "ficticio" if product else {"FICTICIO-001": "ficticio"},
+            "gerada_em": generated.isoformat(), "versao": "ficticia-v1", "execucao_id": "previsao-ficticia"}
 
 
 def free_ports():
@@ -77,14 +99,14 @@ def test_correlacao_sob_concorrencia(runtime):
     assert runtime.agents["atendimento"].pending == {}
 
 
-def test_topologia_e_operacoes_futuras(runtime, catalogo):
+def test_topologia_e_previsao_sem_modelo(runtime, catalogo):
     gateway = AgentGateway(runtime)
     with pytest.raises(ProtocolError):
         gateway.ping("atendimento", "previsao")
     assert gateway.consultar_disponibilidade([{"produto_id": 1, "quantidade": 2}]).payload["available"] is True
     with pytest.raises(RemoteFailure) as error:
         gateway.consultar_previsao(1)
-    assert error.value.code == "NOT_IMPLEMENTED"
+    assert error.value.code == "MODEL_UNAVAILABLE"
 
 
 def test_estoque_baixa_real_idempotente_e_rejeicao_sem_mutacao(runtime, app, catalogo):
@@ -153,21 +175,114 @@ def test_estoque_consulta_previsao_real_sem_inventar_resultado(runtime, app, cat
 
 
 @pytest.mark.parametrize(("total", "risco"), [(5, False), (15, True)])
-def test_estoque_consume_previsao_ficticia_sem_implementar_modelo(runtime, app, catalogo, monkeypatch, total, risco):
+def test_estoque_consume_previsao_ficticia_valida(runtime, app, catalogo, monkeypatch, total, risco):
     product = catalogo["caixa de 10L - chocolate"]
     with app.app_context():
         estoque_service.configurar_minimo("produto", product, 10)
 
     async def fictitious_forecast(sender, envelope):
-        payload = {"produto_id": product, "granularidade": "diaria", "total_previsto": total,
-                   "periodos": [{"data": "2030-01-01", "quantidade": total}], "modelo": "ficticio",
-                   "gerada_em": "2030-01-01T00:00:00"}
+        payload = fictitious_forecast_payload(product, total)
         return encode(sender, PREVISAO, payload, "inform", envelope.thread)
 
     monkeypatch.setattr(runtime.agents["previsao"], "handle_request", fictitious_forecast)
     result = AgentGateway(runtime).consultar_risco(product)
     assert result["status"] == "ok" and result["risco"] is risco
-    assert result["saldo_projetado"] == 20 - total
+    assert result["saldo_projetado"] == str(20 - total)
+
+
+def test_estoque_nao_calcula_risco_com_previsao_vencida(runtime, catalogo, monkeypatch):
+    product = catalogo["caixa de 10L - chocolate"]
+
+    async def expired(sender, envelope):
+        old = datetime.now(ZoneInfo("America/Manaus")).date() - timedelta(days=1)
+        return encode(sender, PREVISAO, fictitious_forecast_payload(product, 30, start=old),
+                      "inform", envelope.thread)
+
+    monkeypatch.setattr(runtime.agents["previsao"], "handle_request", expired)
+    result = AgentGateway(runtime).consultar_risco(product)
+    assert result["status"] == "previsao_desatualizada" and result["risco"] is None
+    assert "saldo_projetado" not in result
+
+
+def test_estoque_preserva_decimal_ao_consumir_previsao(runtime, catalogo, monkeypatch):
+    product = catalogo["caixa de 10L - chocolate"]
+
+    async def fractional(sender, envelope):
+        return encode(sender, PREVISAO, fictitious_forecast_payload(product, "0.123456789"),
+                      "inform", envelope.thread)
+
+    monkeypatch.setattr(runtime.agents["previsao"], "handle_request", fractional)
+    result = AgentGateway(runtime).consultar_risco(product)
+    assert result["saldo_projetado"] == "19.876543211"
+
+
+def test_recalculo_xmpp_nao_bloqueia_consultas_e_ping(runtime, app, monkeypatch):
+    agent = runtime.agents["previsao"]
+    runtime.call(agent.aguardar_inicializacao)
+    worker_started, release_worker = Event(), Event()
+    worker_thread = []
+
+    class BlockingService:
+        def consultar(self, produto_id=None, granularidade="diaria", horizonte_dias=7):
+            return fictitious_forecast_payload(produto_id, "0.5", horizon=horizonte_dias)
+
+        def recalcular(self, data_corte, horizonte_dias, *, cancel_event):
+            worker_thread.append(get_ident())
+            worker_started.set()
+            assert release_worker.wait(5)
+            assert not cancel_event.is_set()
+            return {"run_id": "previsao-ficticia-nova", "status": "concluido"}
+
+    monkeypatch.setattr(agent, "service", BlockingService())
+    gateway = AgentGateway(runtime)
+    try:
+        scheduled = gateway.atualizar_previsao("2030-01-01", 7)
+        assert scheduled.payload["status"] == "em_execucao"
+        assert worker_started.wait(3)
+        job = scheduled.payload["job_id"]
+        assert gateway.ping("estoque", "previsao").payload["status"] == "ok"
+        assert gateway.consultar_previsao().payload["total_previsto"] == "0.5"
+        assert gateway.status_previsao(job).payload["status"] == "em_execucao"
+        with pytest.raises(RemoteFailure) as error:
+            gateway.atualizar_previsao("2030-01-01", 7)
+        assert error.value.code == "FORECAST_BUSY"
+    finally:
+        release_worker.set()
+
+    async def wait_job():
+        await agent._job_task
+
+    runtime.call(wait_job)
+    assert worker_thread == [worker_thread[0]] and worker_thread[0] != runtime.thread.ident
+    assert gateway.status_previsao(job).payload == {"job_id": job, "status": "concluido",
+        "execucao_id": "previsao-ficticia-nova", "erro": None}
+    with app.app_context():
+        logs = LogMensagemAgente.query.filter(LogMensagemAgente.ontology.in_(
+            [PREVISAO_ATUALIZAR, PREVISAO_STATUS])).all()
+        assert logs and all(log.payload == {"redacted": True} for log in logs)
+
+
+def test_encerramento_runtime_cancela_job_sem_reativar_agente(runtime, monkeypatch):
+    agent = runtime.agents["previsao"]
+    runtime.call(agent.aguardar_inicializacao)
+    started, cancelled = Event(), Event()
+
+    class CooperativeService:
+        def recalcular(self, data_corte, horizonte_dias, *, cancel_event):
+            started.set()
+            if cancel_event.wait(5):
+                cancelled.set()
+            return {"run_id": "previsao-nao-ativada", "status": "concluido"}
+
+    monkeypatch.setattr(agent, "service", CooperativeService())
+    scheduled = AgentGateway(runtime).atualizar_previsao("2030-01-01", 7)
+    assert started.wait(2)
+    runtime.stop()
+    assert cancelled.is_set() and not runtime.thread.is_alive()
+    assert not runtime.server.is_alive() and not agent.is_alive()
+    assert agent._jobs[scheduled.payload["job_id"]]["status"] == "falhou"
+    with pytest.raises(AgentUnavailable):
+        AgentGateway(runtime).status_previsao(scheduled.payload["job_id"])
 
 
 def test_timeout_nao_deixa_pedido_pendente(runtime):

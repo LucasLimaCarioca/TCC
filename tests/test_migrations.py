@@ -18,7 +18,6 @@ from app.database import db
 from app.migrations import MigrationError, _config, upgrade_database
 from app.models.produto import Produto
 from app.services.venda_service import registrar_venda
-from app.services import estoque_service
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -64,7 +63,7 @@ def test_banco_vazio_cria_schema_equivalente_aos_modelos(migration_project):
     root, _, app = migration_project
     with app.app_context():
         result = upgrade_database(project_root=root)
-        assert result == {"updated": True, "revision": "0006_integridade_operacoes", "backup": None}
+        assert result == {"updated": True, "revision": "0008_alertas_preventivos", "backup": None}
         with db.engine.connect() as connection:
             assert compare_metadata(MigrationContext.configure(connection), db.metadata) == []
             assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
@@ -164,7 +163,7 @@ def test_cli_upgrade_current_e_create_db_compativeis(migration_project, monkeypa
     assert result.exit_code == 0, result.output
     result = app.test_cli_runner().invoke(args=["db", "current"])
     assert result.exit_code == 0
-    assert "0006_integridade_operacoes" in result.output
+    assert "0008_alertas_preventivos" in result.output
     monkeypatch.setattr("app.app.create_app", lambda: app)
     with pytest.raises(SystemExit) as result:
         runpy.run_path(str(ROOT / "create_db.py"), run_name="__main__")
@@ -240,12 +239,17 @@ def test_check_saldo_preserva_tabela_pai_e_todas_referencias(migration_project, 
         result = upgrade_database(project_root=root)
         assert snapshot(result["backup"]) == before
         after = snapshot(path)
-        comparable = {k: ([row[:-1] for row in v] if k in {"contextos_conversa", "movimentacoes_estoque"} else v)
-                      for k, v in after.items() if k not in {"alembic_version", "operacoes_estoque"}}
+        comparable = {k: ([row[:-1] for row in v] if k in {"contextos_conversa", "movimentacoes_estoque"}
+                          else [row[:-5] for row in v] if k == "previsoes_demanda"
+                          else [row[:-2] for row in v] if k == "alertas_estoque" else v)
+                      for k, v in after.items() if k not in {"alembic_version", "operacoes_estoque", "previsoes_execucoes"}}
         assert comparable == {
             k: v for k, v in before.items() if k != "alembic_version"
         }
         assert all(row[-1] is None for table in ["contextos_conversa", "movimentacoes_estoque"] for row in after[table])
+        assert all(row[-5:] == (None,) * 5 for row in after["previsoes_demanda"])
+        assert all(row[-2:] == (None, None) for row in after["alertas_estoque"])
+        assert after["previsoes_execucoes"] == []
         assert after["operacoes_estoque"] == []
         with db.engine.connect() as connection:
             inspector = sa.inspect(connection)
@@ -280,16 +284,33 @@ def create_phase_five(app):
 def test_integridade_operacoes_migra_0005_preservando_recibos_e_auditoria(migration_project):
     root, path, app = migration_project
     create_phase_five(app)
-    with app.app_context():
-        estoque_service.registrar_venda([{"produto_id": 7, "quantidade": 2}], "Cliente Ficticio")
+    # A fixture representa a revisão antiga sem executar serviços atuais, que
+    # consultam também as colunas introduzidas em revisões posteriores.
+    with app.app_context(), db.engine.begin() as connection:
+        connection.exec_driver_sql(
+            "INSERT INTO vendas (id,cliente_nome,produto_id,quantidade,valor_total,data_venda) "
+            "VALUES (9,'Cliente Ficticio',7,2,20,'2025-01-01 12:00:00')"
+        )
+        connection.exec_driver_sql("UPDATE produtos SET quantidade_disponivel=18 WHERE id=7")
+        connection.exec_driver_sql(
+            "INSERT INTO movimentacoes_estoque "
+            "(id,tipo_item,produto_id,tipo_movimentacao,quantidade,saldo_anterior,saldo_posterior,motivo,criado_em,venda_id) "
+            "VALUES (12,'produto',7,'venda',2,20,18,'Venda ficticia confirmada','2025-01-01 12:00:00',9)"
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO operacoes_estoque (id,tipo,request_hash,resultado,criado_em) VALUES (?,?,?,?,?)",
+            ("00000000-0000-0000-0000-000000000001", "venda", "a" * 64,
+             '{"success":true,"vendas":[9],"movimentacoes":[12]}', "2025-01-01 12:00:00"),
+        )
     before = snapshot(path)
     with app.app_context():
         result = upgrade_database(project_root=root)
-        assert result["revision"] == "0006_integridade_operacoes"
+        assert result["revision"] == "0008_alertas_preventivos"
         assert snapshot(result["backup"]) == before
         after = snapshot(path)
-        assert {k: v for k, v in after.items() if k != "alembic_version"} == {
+        assert {k: v for k, v in after.items() if k not in {"alembic_version", "previsoes_execucoes"}} == {
             k: v for k, v in before.items() if k != "alembic_version"}
+        assert after["previsoes_execucoes"] == []
         with db.engine.connect() as connection:
             checks = {c["name"] for c in sa.inspect(connection).get_check_constraints("operacoes_estoque")}
             assert checks == {"ck_operacao_tipo", "ck_operacao_request_hash"}
@@ -310,3 +331,196 @@ def test_integridade_operacoes_bloqueia_legado_invalido_com_backup_e_rollback(mi
     assert snapshot(path) == before
     backups = list((root / "data/artifacts/backups").glob("*.db"))
     assert len(backups) == 1 and snapshot(backups[0]) == before
+
+
+def test_migracao_0007_preserva_previsao_legada_e_todos_os_outros_registros(migration_project):
+    root, path, app = migration_project
+    create_phase_five(app)
+    with app.app_context(), db.engine.begin() as connection:
+        command.upgrade(_config(connection), "0006_integridade_operacoes")
+        connection.exec_driver_sql("INSERT INTO previsoes_demanda (id, produto_id, granularidade, periodo_inicio, periodo_fim, quantidade_prevista, modelo, versao_modelo, gerada_em, metricas_json) VALUES (14,7,'diaria','2025-01-01','2025-01-01',1,'ficticio','v1','2025-01-01',?)", ('{"mae":1.25}',))
+    before = snapshot(path)
+    with app.app_context():
+        result = upgrade_database(project_root=root)
+        assert result["revision"] == "0008_alertas_preventivos"
+        assert snapshot(result["backup"]) == before
+        after = snapshot(path)
+        assert set(after) == set(before) | {"previsoes_execucoes"}
+        for table, records in before.items():
+            if table == "alembic_version":
+                assert after[table] == [("0008_alertas_preventivos",)]
+            elif table == "previsoes_demanda":
+                assert [row[:-5] for row in after[table]] == records
+                assert all(row[-5:] == (None,) * 5 for row in after[table])
+            else:
+                assert after[table] == records
+        assert after["previsoes_execucoes"] == []
+        with db.engine.connect() as connection:
+            assert connection.exec_driver_sql("PRAGMA foreign_key_check").all() == []
+            assert compare_metadata(MigrationContext.configure(connection), db.metadata) == []
+        assert upgrade_database(project_root=root)["updated"] is False
+
+
+def create_phase_seven(app):
+    create_phase_five(app)
+    with app.app_context(), db.engine.begin() as connection:
+        command.upgrade(_config(connection), "0007_previsoes_execucoes")
+        connection.exec_driver_sql(
+            "INSERT INTO materias_primas (id,codigo,nome,unidade_medida) "
+            "VALUES (8,'MP-FICTICIA','Materia Ficticia','kg')"
+        )
+
+
+def insert_legacy_alert(connection, alert_id, alert_type, *, item="produto", active=1):
+    connection.exec_driver_sql(
+        "INSERT INTO alertas_estoque "
+        "(id,tipo_item,produto_id,materia_prima_id,tipo_alerta,mensagem,nivel,criado_em,resolvido_em,ativo) "
+        "VALUES (?,?,?,?,?,'Mensagem ficticia','aviso','2025-01-01 12:30:00',?,?)",
+        (alert_id, item, 7 if item == "produto" else None,
+         8 if item == "materia_prima" else None, alert_type,
+         None if active else "2025-01-02 13:00:00", active),
+    )
+
+
+def schema_snapshot(path):
+    with sqlite3.connect(path) as connection:
+        return connection.execute(
+            "SELECT type,name,tbl_name,sql FROM sqlite_master "
+            "WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name"
+        ).fetchall()
+
+
+def test_migracao_0008_preserva_alertas_legados_sem_inventar_snapshot(migration_project):
+    root, path, app = migration_project
+    create_phase_seven(app)
+    with app.app_context(), db.engine.begin() as connection:
+        insert_legacy_alert(connection, 20, "estoque_minimo")
+        insert_legacy_alert(connection, 21, "risco_futuro")
+        insert_legacy_alert(connection, 22, "risco_futuro", active=0)
+        insert_legacy_alert(connection, 23, "estoque_minimo", item="materia_prima")
+    before = snapshot(path)
+    with app.app_context():
+        result = upgrade_database(project_root=root)
+        assert result["revision"] == "0008_alertas_preventivos"
+        assert snapshot(result["backup"]) == before
+        assert result["backup"].stat().st_mode & 0o777 == 0o600
+        after = snapshot(path)
+        for table, records in before.items():
+            if table == "alembic_version":
+                assert after[table] == [("0008_alertas_preventivos",)]
+            elif table == "alertas_estoque":
+                assert [row[:-2] for row in after[table]] == records
+                assert all(row[-2:] == (None, None) for row in after[table])
+            else:
+                assert after[table] == records
+        with db.engine.connect() as connection:
+            assert compare_metadata(MigrationContext.configure(connection), db.metadata) == []
+            assert connection.exec_driver_sql("PRAGMA foreign_key_check").all() == []
+            index = next(i for i in sa.inspect(connection).get_indexes("alertas_estoque")
+                         if i["name"] == "uq_alerta_risco_futuro_ativo")
+            assert index["unique"] and index["column_names"] == ["produto_id"]
+            assert "tipo_alerta = 'risco_futuro' AND ativo = 1" in str(index["dialect_options"]["sqlite_where"])
+        assert upgrade_database(project_root=root)["updated"] is False
+        assert len(list((root / "data/artifacts/backups").glob("*.db"))) == 1
+
+
+@pytest.mark.parametrize("incompatibility", ["risco_materia_prima", "risco_ativo_duplicado"])
+def test_migracao_0008_recusa_incompatibilidades_sem_corrigir_ou_perder_linhas(migration_project, incompatibility):
+    root, path, app = migration_project
+    create_phase_seven(app)
+    with app.app_context(), db.engine.begin() as connection:
+        insert_legacy_alert(connection, 20, "estoque_minimo")
+        if incompatibility == "risco_materia_prima":
+            insert_legacy_alert(connection, 21, "risco_futuro", item="materia_prima")
+        else:
+            insert_legacy_alert(connection, 21, "risco_futuro")
+            insert_legacy_alert(connection, 22, "risco_futuro")
+    before, schema_before = snapshot(path), schema_snapshot(path)
+    with app.app_context():
+        with pytest.raises(MigrationError, match="alterações revertidas"):
+            upgrade_database(project_root=root)
+        with db.engine.connect() as connection:
+            assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
+    assert snapshot(path) == before
+    assert schema_snapshot(path) == schema_before
+    backups = list((root / "data/artifacts/backups").glob("*.db"))
+    assert len(backups) == 1
+    assert snapshot(backups[0]) == before
+    assert schema_snapshot(backups[0]) == schema_before
+
+
+@pytest.mark.parametrize("method", ["migrations", "create_all"])
+def test_schema_preventivo_unico_por_produto_so_entre_riscos_ativos(migration_project, method):
+    from app.models.alerta_estoque import AlertaEstoque
+
+    root, path, app = migration_project
+    with app.app_context():
+        if method == "migrations":
+            upgrade_database(project_root=root)
+        else:
+            db.create_all()
+        db.session.add(Produto(id=7, nome="Produto Ficticio", preco=10))
+        db.session.commit()
+
+        def add_alert(alert_type, active, horizon):
+            db.session.add(AlertaEstoque(
+                tipo_item="produto", produto_id=7, tipo_alerta=alert_type,
+                mensagem="Mensagem ficticia", nivel="aviso", ativo=active,
+                previsao_json={"horizonte_dias": horizon},
+            ))
+
+        # Estoque mínimo e registros resolvidos não disputam o índice preventivo.
+        add_alert("estoque_minimo", True, 7)
+        add_alert("estoque_minimo", True, 14)
+        add_alert("risco_futuro", False, 7)
+        add_alert("risco_futuro", False, 14)
+        add_alert("risco_futuro", True, 7)
+        db.session.commit()
+        add_alert("risco_futuro", True, 28)
+        with pytest.raises(sa.exc.IntegrityError, match="UNIQUE constraint failed"):
+            db.session.commit()
+        db.session.rollback()
+        assert AlertaEstoque.query.count() == 5
+        inactive = AlertaEstoque.query.filter_by(tipo_alerta="risco_futuro", ativo=False).first()
+        inactive.ativo = True
+        with pytest.raises(sa.exc.IntegrityError, match="UNIQUE constraint failed"):
+            db.session.commit()
+        db.session.rollback()
+        active = AlertaEstoque.query.filter_by(tipo_alerta="risco_futuro", ativo=True).one()
+        active.ativo = False
+        db.session.commit()
+        add_alert("risco_futuro", True, 28)
+        db.session.commit()
+        assert AlertaEstoque.query.filter_by(tipo_alerta="risco_futuro", ativo=True).count() == 1
+
+
+@pytest.mark.parametrize("method", ["migrations", "create_all"])
+def test_schema_preventivo_so_produto_e_json_nullable_sql(migration_project, method):
+    from app.models.alerta_estoque import AlertaEstoque
+    from app.models.materia_prima import MateriaPrima
+
+    root, _, app = migration_project
+    with app.app_context():
+        if method == "migrations":
+            upgrade_database(project_root=root)
+        else:
+            db.create_all()
+        db.session.add_all([
+            Produto(id=7, nome="Produto Ficticio", preco=10),
+            MateriaPrima(id=8, codigo="MP-FICTICIA", nome="Materia Ficticia", unidade_medida="kg"),
+        ])
+        db.session.commit()
+        row = AlertaEstoque(tipo_item="produto", produto_id=7, tipo_alerta="risco_futuro",
+                            mensagem="Legado ficticio", nivel="aviso", previsao_json=None)
+        db.session.add(row)
+        db.session.commit()
+        with db.engine.connect() as connection:
+            assert connection.exec_driver_sql(
+                "SELECT previsao_json IS NULL, atualizado_em IS NULL FROM alertas_estoque"
+            ).one() == (1, 1)
+        db.session.add(AlertaEstoque(tipo_item="materia_prima", materia_prima_id=8,
+                                    tipo_alerta="risco_futuro", mensagem="Mensagem ficticia", nivel="aviso"))
+        with pytest.raises(sa.exc.IntegrityError, match="ck_alerta_risco_produto"):
+            db.session.commit()
+        db.session.rollback()
+        assert AlertaEstoque.query.count() == 1

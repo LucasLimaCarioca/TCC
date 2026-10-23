@@ -5,6 +5,7 @@ from flask import Blueprint, current_app, jsonify, render_template, request
 from app.agents.base_agent import AgentUnavailable
 from app.services.estoque_client import EstoqueClient
 from app.services.estoque_service import EstoqueError, resolver_chaves_operacao
+from app.services.alerta_preventivo_config import horizonte_preventivo
 from app.models.produto import Produto
 
 
@@ -22,7 +23,8 @@ def _dados():
 def tela_estoque():
     estoque = EstoqueClient().executar("visao_estoque")
     produtos = Produto.query.filter_by(ativo=True).order_by(Produto.categoria, Produto.sabor).all()
-    return render_template("estoque.html", titulo="Controle de Estoque", produtos=produtos, estoque=estoque)
+    return render_template("estoque.html", titulo="Controle de Estoque", produtos=produtos, estoque=estoque,
+                           horizonte_preventivo_dias=horizonte_preventivo(current_app))
 
 
 @estoque_bp.get("/api/estoque")
@@ -75,11 +77,27 @@ def risco_api(produto_id):
     gateway = current_app.extensions.get("agent_gateway")
     if gateway is None:
         raise AgentUnavailable("Ative o runtime para consultar o agente de previsão.")
+    raw_horizonte = request.args.get("horizonte_dias")
     try:
-        horizonte = int(request.args.get("horizonte_dias", "7"))
+        horizonte = int(raw_horizonte) if raw_horizonte is not None else None
     except ValueError:
         raise EstoqueError("INVALID_INPUT", "Horizonte inválido.") from None
     granularidade = request.args.get("granularidade", "diaria")
-    if horizonte <= 0 or granularidade not in {"diaria", "semanal", "mensal"}:
+    horizonte = horizonte_preventivo(current_app, horizonte)
+    if granularidade not in {"diaria", "semanal", "mensal"}:
         raise EstoqueError("INVALID_INPUT", "Granularidade ou horizonte inválidos.")
     return jsonify(gateway.consultar_risco(produto_id, granularidade, horizonte))
+
+
+@estoque_bp.post("/api/estoque/alertas/preventivos/<int:produto_id>")
+def sincronizar_alerta_preventivo_api(produto_id):
+    dados = _dados()
+    if set(dados) - {"horizonte_dias"}:
+        raise EstoqueError("INVALID_INPUT", "Informe apenas o horizonte do alerta preventivo.")
+    if "horizonte_dias" in dados and type(dados["horizonte_dias"]) is not int:
+        raise EstoqueError("INVALID_INPUT", "Informe um horizonte inteiro entre 1 e 366 dias.")
+    horizonte = horizonte_preventivo(current_app, dados.get("horizonte_dias"))
+    gateway = current_app.extensions.get("agent_gateway")
+    if gateway is None:
+        raise AgentUnavailable("Ative o runtime para atualizar os alertas preventivos.")
+    return jsonify(gateway.sincronizar_alerta_preventivo(produto_id, horizonte))

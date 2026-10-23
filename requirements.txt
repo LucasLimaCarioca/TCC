@@ -7,6 +7,8 @@ cryptography==48.0.0
 attrs==26.1.0
 loguru==0.7.3
 pandas==2.3.3
+numpy==2.5.3
 scikit-learn==1.7.2
+threadpoolctl==3.7.0
 streamlit==1.64.0
 alembic==1.18.4

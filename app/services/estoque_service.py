@@ -298,6 +298,11 @@ def visao_estoque():
         materials = session.scalars(select(MateriaPrima).where(MateriaPrima.ativo.is_(True)).order_by(MateriaPrima.nome)).all()
         alerts = session.scalars(select(AlertaEstoque).order_by(AlertaEstoque.id.desc())).all()
         movements = session.scalars(select(MovimentacaoEstoque).order_by(MovimentacaoEstoque.id.desc()).limit(100)).all()
+        from app.models.previsao_execucao import PrevisaoExecucao
+        from app.services.alerta_preventivo_service import estado_alerta_preventivo
+        active_run = session.scalar(select(PrevisaoExecucao.id).where(PrevisaoExecucao.ativa.is_(True)))
+        evaluations = {alert.id: estado_alerta_preventivo(alert, alert.produto, active_run)
+                       for alert in alerts if alert.tipo_alerta == "risco_futuro"}
         return {
             "produtos": [{"produto_id": p.id, "nome": p.nome, "categoria": p.categoria, "sabor": p.sabor,
                           "quantidade_disponivel": p.quantidade_disponivel, "estoque_minimo": p.estoque_minimo} for p in products],
@@ -305,6 +310,8 @@ def visao_estoque():
                                 "quantidade_disponivel": str(m.quantidade_disponivel), "estoque_minimo": str(m.estoque_minimo)} for m in materials],
             "alertas": [{"id": a.id, "tipo_item": a.tipo_item, "item_id": a.produto_id or a.materia_prima_id,
                          "tipo_alerta": a.tipo_alerta, "mensagem": a.mensagem, "nivel": a.nivel, "ativo": a.ativo,
+                         "avaliacao": evaluations.get(a.id),
+                         "atualizado_em": a.atualizado_em.isoformat() if a.atualizado_em else None,
                          "criado_em": a.criado_em.isoformat(),
                          "resolvido_em": a.resolvido_em.isoformat() if a.resolvido_em else None} for a in alerts],
             "movimentacoes": [{"id": m.id, "tipo_item": m.tipo_item, "item_id": m.produto_id or m.materia_prima_id,

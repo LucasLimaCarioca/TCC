@@ -91,8 +91,12 @@ python run.py
 ```
 
 `python -m flask --app run.py db upgrade` é equivalente a `create_db.py`.
-O banco padrão continua sendo `instance/sorvetes.db`. Não execute `seed.py`
-novamente para migrar: o seed redefine os saldos da demonstração.
+Na execução original da Fase 1, o banco padrão era `instance/sorvetes.db`.
+O padrão atual aprovado é `data/artifacts/sorvetes.db`, com caminho absoluto
+resolvido a partir da raiz do projeto. A aplicação não transfere o banco legado
+automaticamente: quando apenas ele existe, bloqueia a criação de um banco vazio
+e orienta a transferência com backup. Não execute `seed.py` novamente para
+migrar: o seed redefine os saldos da demonstração.
 
 O runner migra exclusivamente SQLite nesta fase. Usa a API de backup do SQLite
 para gerar uma cópia consistente em `data/artifacts/backups/banco-<id>.db`, com

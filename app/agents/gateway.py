@@ -1,6 +1,7 @@
 """Ponte síncrona para Flask; as corrotinas executam no loop dedicado do runtime."""
 
-from app.agents.protocol import BAIXA_VENDA, DISPONIBILIDADE, PING, PREVISAO
+from app.agents.protocol import (BAIXA_VENDA, DISPONIBILIDADE, PING, PREVISAO,
+                                 PREVISAO_ATUALIZAR, PREVISAO_STATUS)
 from uuid import uuid4
 
 
@@ -29,15 +30,27 @@ class AgentGateway:
     def executar_estoque(self, command, **kwargs):
         return self.runtime.call(lambda: self.runtime.agents["estoque"].executar(command, **kwargs))
 
-    def consultar_risco(self, produto_id, granularidade="diaria", horizonte_dias=7):
+    def consultar_risco(self, produto_id, granularidade="diaria", horizonte_dias=None):
         return self.runtime.call(lambda: self.runtime.agents["estoque"].consultar_risco(
             produto_id, granularidade, horizonte_dias, self.runtime.config.request_timeout))
 
-    def consultar_previsao(self, produto_id, granularidade="diaria", horizonte_dias=7):
+    def sincronizar_alerta_preventivo(self, produto_id, horizonte_dias=None):
+        return self.runtime.call(lambda: self.runtime.agents["estoque"].sincronizar_alerta_preventivo(
+            produto_id, horizonte_dias, self.runtime.config.request_timeout))
+
+    def consultar_previsao(self, produto_id=None, granularidade="diaria", horizonte_dias=7):
         return self.request("estoque", "previsao", PREVISAO, {
             "produto_id": produto_id, "granularidade": granularidade,
             "horizonte_dias": horizonte_dias,
         })
+
+    def atualizar_previsao(self, data_corte, horizonte_dias=28):
+        return self.request("estoque", "previsao", PREVISAO_ATUALIZAR, {
+            "data_corte": data_corte, "horizonte_dias": horizonte_dias,
+        })
+
+    def status_previsao(self, job_id):
+        return self.request("estoque", "previsao", PREVISAO_STATUS, {"job_id": job_id})
 
 
 def start_runtime(app):
