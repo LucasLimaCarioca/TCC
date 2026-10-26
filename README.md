@@ -42,6 +42,10 @@ Na Fase 9, a área `/previsoes` reúne filtros por código histórico, período 
 frequência, gráfico local, tabela decimal e avaliação temporal por produto.
 O recálculo usa o agente existente em segundo plano, com acompanhamento da
 tarefa. Consulte o [guia da interface](docs/FASE_9_INTERFACE_WEB.md).
+Na Fase 10, um comando local organiza cenários fictícios com SPADE/XMPP real e
+coleta a avaliação temporal de manifestos publicados, sem novo treinamento com dados reais nem
+alteração do banco operacional. Evidências CSV/JSON e resumo permanecem privados.
+Consulte o [protocolo experimental](docs/FASE_10_VALIDACAO_EXPERIMENTAL.md).
 
 ## Arquitetura
 
@@ -142,6 +146,7 @@ TCC/
 │   │   ├── evaluation.py
 │   │   ├── aggregation.py
 │   │   └── service.py
+│   ├── experiments/          # cenários e coleta local de evidências
 │   ├── routes/
 │   │   ├── estoque_routes.py
 │   │   ├── previsao_routes.py
@@ -188,7 +193,8 @@ TCC/
 ├── scripts/
 │   ├── prepare_history.py
 │   ├── import_history.py
-│   └── forecast_history.py
+│   ├── forecast_history.py
+│   └── validate_tccii.py
 └── README.md
 ```
 
@@ -694,6 +700,34 @@ Consulte [o relatório da Fase 0](docs/BASELINE_FASE_0.md) para os resultados,
 o escopo validado e os comportamentos conhecidos. A
 [Fase 2](docs/FASE_2_ATENDIMENTO.md) registra a refatoração e sua validação atual.
 
+## Validação experimental
+
+A Fase 10 executa cenários controlados em banco fictício próprio e coleta,
+somente para leitura, métricas e proveniência de uma previsão já publicada:
+
+```bash
+python -m scripts.validate_tccii \
+  --manifest 'data/artifacts/previsao-<id>/manifest.json'
+```
+
+Substitua `<id>` pelo manifesto privado desejado. A opção pode ser repetida;
+nenhum modelo é treinado ou ativado com histórico real por esse comando. A fonte
+fictícia do cenário funcional gera sua própria previsão de referência. Para
+executar somente os cenários fictícios, sem depender de dados reais:
+
+```bash
+python -m scripts.validate_tccii --functional-only
+```
+
+As evidências ficam em `data/reports/validacao-tccii-<uuid>/` e o workspace
+fictício em `data/artifacts/validacao-tccii-<uuid>/`, fora do Git. A coleta não
+altera `data/artifacts/sorvetes.db`. O console mostra somente status e caminhos.
+O pacote inclui JSON, resumo e tabelas de cenários, métricas, comparações,
+mensagens e tempos. Estado técnico aprovado não implica superioridade do
+modelo; o modo somente funcional não fecha a avaliação integral da Fase 10.
+Metodologia, comandos e limites estão no
+[guia da Fase 10](docs/FASE_10_VALIDACAO_EXPERIMENTAL.md).
+
 ## Proteção dos dados históricos
 
 O original `data/pedido.csv` é restrito e permanece apenas na máquina local.
@@ -751,12 +785,16 @@ A Fase 9 acrescenta a tela de previsões na mesma aplicação Flask, usando
 consulta por XMPP, filtros dentro da cobertura publicada, gráfico e métricas
 por produto. Códigos sem associação ao catálogo também são consultáveis nessa
 tela, sem alterar os vínculos exigidos pelas operações de estoque.
+A Fase 10 implementa a coleta reprodutível de cenários controlados, metadados de
+comunicação e avaliação histórica, com execução e fechamento finais registrados
+no guia da fase. A suíte automatizada continua sendo um requisito separado.
 Detalhes: [Fase 3](docs/FASE_3_SPADE_XMPP.md),
 [Fase 4](docs/FASE_4_ESTOQUE.md), [Fase 5](docs/FASE_5_IMPORTACAO.md),
 [Fase 6](docs/FASE_6_PREVISAO.md),
 [Fase 7](docs/FASE_7_AGENTE_PREVISAO.md),
-[Fase 8](docs/FASE_8_ALERTAS_PREVENTIVOS.md) e
-[Fase 9](docs/FASE_9_INTERFACE_WEB.md).
+[Fase 8](docs/FASE_8_ALERTAS_PREVENTIVOS.md),
+[Fase 9](docs/FASE_9_INTERFACE_WEB.md) e
+[Fase 10](docs/FASE_10_VALIDACAO_EXPERIMENTAL.md).
 
 Funcionalidades já implementadas:
 
@@ -788,6 +826,7 @@ Funcionalidades já implementadas:
 - tela de previsões em `/previsoes`, com códigos históricos, período e agrupamentos;
 - gráfico local, valores decimais e comparação por produto com baselines;
 - atualização pela tela e acompanhamento de tarefa sem treinamento na thread HTTP;
+- protocolo experimental local com cenários SPADE/XMPP e evidências privadas;
 - tela de vendas;
 - endpoints JSON para testes sem interface gráfica.
 
@@ -802,11 +841,12 @@ Funcionalidades já implementadas:
 - Matérias-primas têm controle manual; abatimento por venda depende de receitas/BOM.
 - Um pedido com múltiplos produtos gera múltiplos registros na tabela `vendas`.
 - A interpretação de linguagem natural ainda é limitada a frases simples.
+- A avaliação histórica compara erros em recortes temporais específicos; não
+  demonstra significância estatística nem melhoria da operação da fábrica.
 
 ## Próximas evoluções possíveis
 
 - melhorar interpretação de intenção;
 - criar uma entidade formal de pedido com múltiplos itens;
-- adicionar métricas para avaliação do protótipo;
-- realizar a validação experimental da Fase 10;
+- ampliar a validação com novos períodos e condições operacionais;
 - exportar relatórios de vendas e atendimentos.
