@@ -121,8 +121,11 @@ python run.py
 ```
 
 Esses comandos geram senhas locais sem exibi-las. Também é possível defini-las
-na configuração da aplicação. `.env.example` lista as variáveis; `python run.py`
-não carrega esse arquivo automaticamente. Não há senha padrão embutida.
+no `.env` privado da pasta de `run.py` ou na configuração da aplicação.
+`python run.py` carrega esse `.env` antes de criar a aplicação e iniciar SPADE;
+variáveis já exportadas no terminal têm prioridade. A importação de `run.py`
+não carrega o arquivo nem inicia os agentes. `.env.example` lista as variáveis
+e serve apenas como referência. Não há senha padrão embutida.
 
 | Variável | Padrão |
 |---|---|

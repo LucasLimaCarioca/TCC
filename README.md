@@ -212,8 +212,10 @@ TCC/
 ### `run.py`
 
 Arquivo de entrada da aplicação. Inicializa o runtime SPADE/XMPP e o Flask,
-com encerramento explícito e reloader desativado. Configure as três senhas
-XMPP no ambiente conforme o [guia da Fase 3](docs/FASE_3_SPADE_XMPP.md).
+com encerramento explícito e reloader desativado. Carrega o `.env` da pasta do
+launcher antes de criar a aplicação e iniciar os agentes. Variáveis exportadas
+no terminal têm prioridade. Configure as três senhas XMPP conforme o
+[guia da Fase 3](docs/FASE_3_SPADE_XMPP.md).
 
 ```bash
 .venv/bin/python run.py
@@ -670,8 +672,11 @@ export XMPP_PREVISAO_PASSWORD="$(python -c 'import secrets; print(secrets.token_
 python run.py
 ```
 
-Senhas obrigatórias vêm do ambiente; não há valor padrão. `.env.example` lista
-portas e timeouts opcionais. O launcher não carrega o arquivo automaticamente.
+Senhas obrigatórias vêm do ambiente ou do `.env` privado na pasta de `run.py`;
+não há valor padrão. O launcher carrega esse `.env` antes de iniciar SPADE,
+sem substituir variáveis já exportadas. `.env.example` lista as variáveis e
+serve apenas como referência; nunca é carregado automaticamente. Não versione
+o `.env` nem suas credenciais.
 Para usar apenas o atendimento local: `TCC_SPADE_ENABLED=0 python run.py`.
 Consulte [a Fase 3](docs/FASE_3_SPADE_XMPP.md) para lifecycle e configuração.
 

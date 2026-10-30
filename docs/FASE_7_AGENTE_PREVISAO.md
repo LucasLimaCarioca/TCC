@@ -66,9 +66,10 @@ banco. Sem execução ativa, retorna `MODEL_UNAVAILABLE`; os outros agentes
 continuam funcionando. Erros de inicialização da previsão também são tratados
 sem apresentar resultados inventados.
 
-As variáveis são lidas do ambiente ou da configuração Flask. `.env.example` é
-uma referência e não é carregado automaticamente pelo launcher. Configure as
-senhas XMPP conforme o [guia da Fase 3](FASE_3_SPADE_XMPP.md).
+As variáveis são lidas do ambiente ou da configuração Flask. `python run.py`
+carrega o `.env` privado da pasta do launcher antes de iniciar os agentes,
+preservando variáveis já exportadas. `.env.example` é apenas uma referência.
+Configure as senhas XMPP conforme o [guia da Fase 3](FASE_3_SPADE_XMPP.md).
 
 Na carga inicial são conferidos os hashes dos arquivos relacionados pelo
 manifesto, incluindo modelos, relatório, séries e previsões. Os modelos pickle
