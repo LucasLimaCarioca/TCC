@@ -32,27 +32,28 @@
     <section class="content-panel" id="previsao-painel" aria-labelledby="previsao-resultado-titulo" hidden>
         <div class="section-header"><h2 id="previsao-resultado-titulo">Demanda prevista</h2><p id="previsao-selecao"></p></div>
         <dl class="forecast-summary">
-            <div><dt>Total no período selecionado</dt><dd id="previsao-total">—</dd><small>unidades previstas</small></div>
+            <div><dt>Total no período selecionado</dt><dd id="previsao-total">—</dd><small>unidades estimadas arredondadas</small></div>
             <div><dt>Período selecionado</dt><dd id="previsao-cobertura">—</dd></div>
             <div><dt>Histórico utilizado até</dt><dd id="previsao-corte">—</dd></div>
             <div><dt>Publicação</dt><dd id="previsao-publicacao">—</dd></div>
         </dl>
         <p id="previsao-cobertura-completa" class="forecast-help"></p>
         <figure class="forecast-figure">
-            <figcaption id="previsao-grafico-titulo">Demanda por período (unidades)</figcaption>
+            <figcaption id="previsao-grafico-titulo">Demanda por período (unidades arredondadas)</figcaption>
             <div class="forecast-chart-wrap" role="region" aria-label="Gráfico da demanda prevista" tabindex="0">
                 <svg id="previsao-grafico" viewBox="0 0 900 290" role="img" aria-labelledby="previsao-grafico-titulo previsao-grafico-descricao"></svg>
             </div>
-            <p id="previsao-grafico-descricao" class="forecast-help">O gráfico apresenta a tendência. Consulte os valores completos na tabela abaixo.</p>
+            <p id="previsao-grafico-descricao" class="forecast-help">O gráfico e a tabela mostram as mesmas estimativas arredondadas. Em telas pequenas, deslize o gráfico horizontalmente para consultar todas as datas.</p>
         </figure>
         <div class="stock-table-wrap forecast-table-wrap" role="region" aria-label="Tabela da demanda prevista" tabindex="0">
             <table class="data-table forecast-table">
-                <caption>Valores previstos por período</caption>
+                <caption>Estimativas arredondadas por período</caption>
                 <thead><tr><th scope="col">Período</th><th scope="col">Cobertura efetiva</th><th scope="col">Quantidade prevista</th></tr></thead>
                 <tbody id="previsao-periodos"></tbody>
             </table>
         </div>
-        <p class="forecast-help">Semanas vão de segunda a domingo. Períodos parciais incluem somente os dias cobertos pela seleção. Quantidades fracionárias representam a estimativa do modelo.</p>
+        <p class="forecast-help">Semanas vão de segunda a domingo. Períodos parciais incluem somente os dias cobertos pela seleção.</p>
+        <p class="forecast-help">Cada período é arredondado para o inteiro mais próximo; 0,5 arredonda para cima. O total soma os inteiros da tabela. Por isso, pode diferir do arredondamento do total original, dos produtos separadamente ou de outro agrupamento. As previsões originais e as métricas permanecem inalteradas.</p>
     </section>
 
     <section class="content-panel" aria-labelledby="previsao-modelos-titulo">

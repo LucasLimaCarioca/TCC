@@ -55,8 +55,6 @@
 
     </section>
 
-    <p id="estoque-feedback" role="status" aria-live="polite"></p>
-
     <section class="content-panel">
         <h2>Matérias-primas</h2>
         <div class="stock-table-wrap">
@@ -78,8 +76,18 @@
             <label>Código <input name="codigo" maxlength="64" required></label>
             <label>Nome <input name="nome" maxlength="100" required></label>
             <label>Unidade de medida <input name="unidade_medida" maxlength="20" placeholder="kg, L, unidade" required></label>
-            <label>Estoque mínimo <input name="estoque_minimo" type="number" min="0" step="0.000000001" value="0" required></label>
-            <button type="submit">Cadastrar com saldo zero</button>
+            <div class="stock-field">
+                <label for="materia-minimo">Estoque mínimo</label>
+                <div class="decimal-stepper" data-decimal-stepper>
+                    <button type="button" data-step="-1" aria-label="Diminuir estoque mínimo em uma unidade">−</button>
+                    <input id="materia-minimo" name="estoque_minimo" type="text" inputmode="decimal" pattern="[0-9]+([.,][0-9]{1,9})?" maxlength="35" value="0" aria-describedby="materia-precisao" data-decimal required>
+                    <button type="button" data-step="1" aria-label="Aumentar estoque mínimo em uma unidade">+</button>
+                </div>
+            </div>
+            <label>Quantidade inicial (opcional) <input name="quantidade_inicial" type="text" inputmode="decimal" pattern="[0-9]+([.,][0-9]{1,9})?" maxlength="35" value="0" aria-describedby="materia-precisao" data-decimal></label>
+            <p id="materia-precisao">Valores na unidade de medida cadastrada, com até nove casas decimais. Os botões alteram o mínimo em uma unidade. Quantidade inicial vazia significa zero.</p>
+            <button type="submit">Cadastrar matéria-prima</button>
+            <p id="materia-feedback" class="stock-form-feedback" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" hidden></p>
         </form>
     </section>
 
@@ -101,16 +109,18 @@
             <label>Motivo <input name="motivo" maxlength="500" required></label>
             <p>No ajuste, informe o saldo final desejado. Produtos usam unidades inteiras; matérias-primas usam a unidade cadastrada.</p>
             <button type="submit">Registrar movimentação</button>
+            <p id="movimentacao-feedback" class="stock-form-feedback" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" hidden></p>
         </form>
         <form id="minimo-form" class="stock-form">
             <h3>Configurar estoque mínimo</h3>
             {{ selecionar_item() }}
             <label>Mínimo <input name="estoque_minimo" type="number" min="0" step="1" required></label>
             <button type="submit">Salvar mínimo</button>
+            <p id="minimo-feedback" class="stock-form-feedback" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" hidden></p>
         </form>
     </section>
 
-    <section class="content-panel">
+    <section class="content-panel" id="alertas-estoque">
         <h2>Alertas de estoque</h2>
         <ul>
             {% for alerta in estoque.alertas if alerta.ativo %}
@@ -127,6 +137,7 @@
         <form id="sincronizar-form" class="stock-form">
             <p>Os alertas de estoque mínimo são atualizados com as movimentações, vendas e alterações do mínimo. Para revisar cadastros anteriores, use a sincronização.</p>
             <button type="submit">Sincronizar alertas de estoque mínimo</button>
+            <p id="sincronizar-feedback" class="stock-form-feedback" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" hidden></p>
         </form>
         <form id="risco-form" class="stock-form">
             <h3>Consultar risco futuro</h3>
@@ -134,17 +145,17 @@
             <label>Horizonte (dias) <input name="horizonte_dias" type="number" min="1" max="366" step="1" value="{{ horizonte_preventivo_dias }}" required></label>
             <p>A consulta apresenta a projeção, sem alterar os alertas registrados.</p>
             <button type="submit">Consultar risco</button>
+            <p id="risco-feedback" class="stock-form-feedback" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" hidden></p>
         </form>
-        <p id="risco-feedback" role="status" aria-live="polite"></p>
         <form id="preventivo-form" class="stock-form">
             <h3>Atualizar alerta preventivo</h3>
             <label>Produto <select name="produto_id" required>{% for produto in produtos %}<option value="{{ produto.id }}">{{ produto.nome }}</option>{% endfor %}</select></label>
-            <label>Horizonte (dias) <input name="horizonte_dias" type="number" min="1" max="366" step="1" value="{{ horizonte_preventivo_dias }}" required></label>
+            <p>Horizonte oficial: <strong>{{ horizonte_preventivo_dias }} dias</strong>. Esta atualização usa exclusivamente o horizonte configurado para os alertas persistentes.</p>
             <p>Quando a atualização automática está ativa, o sistema reavalia produtos após mudanças de estoque, do mínimo ou da previsão. Você também pode solicitar uma avaliação agora.</p>
             <p>Sem previsão válida, o risco fica desconhecido e os alertas anteriores são preservados. Isso não representa demanda zero. Matérias-primas continuam usando apenas estoque mínimo.</p>
             <button type="submit">Atualizar alerta deste produto</button>
+            <p id="preventivo-feedback" class="stock-form-feedback" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" hidden></p>
         </form>
-        <p id="preventivo-feedback" role="status" aria-live="polite"></p>
     </section>
 
     <section class="content-panel">

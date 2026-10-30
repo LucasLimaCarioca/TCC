@@ -258,7 +258,8 @@ def configurar_minimo(tipo_item, item_id, estoque_minimo):
     return {"estoque_minimo": str(minimum)}
 
 
-def cadastrar_materia_prima(codigo, nome, unidade_medida, estoque_minimo="0"):
+def cadastrar_materia_prima(codigo, nome, unidade_medida, estoque_minimo="0", quantidade_inicial="0"):
+    """Cria o item e sua entrada inicial juntos; código único impede crédito duplicado."""
     codigo = codigo.strip().upper() if isinstance(codigo, str) else codigo
     nome = nome.strip() if isinstance(nome, str) else nome
     unidade_medida = unidade_medida.strip() if isinstance(unidade_medida, str) else unidade_medida
@@ -266,15 +267,26 @@ def cadastrar_materia_prima(codigo, nome, unidade_medida, estoque_minimo="0"):
         if not isinstance(value, str) or not value.strip() or len(value) > limit:
             raise EstoqueError("INVALID_INPUT", "Informe código, nome e unidade de medida válidos.")
     minimum = quantidade_item(estoque_minimo, "materia_prima")
+    initial = quantidade_item(quantidade_inicial, "materia_prima")
     with _transacao() as session:
         # Reconhece códigos equivalentes também nos cadastros legados, sem
         # renomeá-los ou colidir com referências já existentes.
         if any(existing.strip().upper() == codigo for existing in session.scalars(select(MateriaPrima.codigo))):
             raise EstoqueError("DUPLICATE_MATERIAL", "Código de matéria-prima já cadastrado.")
         material = MateriaPrima(codigo=codigo, nome=nome, unidade_medida=unidade_medida,
-                               quantidade_disponivel=Decimal(0), estoque_minimo=minimum)
+                               quantidade_disponivel=initial, estoque_minimo=minimum)
         session.add(material)
         session.flush()
+        # Numeric no SQLite pode converter Decimal para float. Não confirmar
+        # um saldo inicial que perdeu precisão durante a gravação.
+        session.refresh(material, attribute_names=["quantidade_disponivel"])
+        if material.quantidade_disponivel != initial:
+            raise EstoqueError("INVALID_QUANTITY", "Esta quantidade inicial não pode ser registrada com a precisão informada.")
+        if initial > 0:
+            session.add(MovimentacaoEstoque(**_referencia("materia_prima", material.id),
+                tipo_movimentacao="entrada", quantidade=initial, saldo_anterior=Decimal(0),
+                saldo_posterior=initial, motivo="Cadastro inicial de matéria-prima."))
+            session.flush()
         _atualizar_alerta(session, "materia_prima", material)
         return {"id": material.id}
 

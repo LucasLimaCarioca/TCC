@@ -39,13 +39,22 @@ solicitações após mudanças de estoque ou previsão; a tela também permite
 consultar o risco e solicitar uma avaliação. Previsão indisponível preserva os
 alertas anteriores. Consulte o [guia dos alertas](docs/FASE_8_ALERTAS_PREVENTIVOS.md).
 Na Fase 9, a área `/previsoes` reúne filtros por código histórico, período e
-frequência, gráfico local, tabela decimal e avaliação temporal por produto.
+frequência, gráfico local, tabela e avaliação temporal por produto. As quantidades
+da interface são estimativas inteiras; os decimais originais ficam no backend.
 O recálculo usa o agente existente em segundo plano, com acompanhamento da
 tarefa. Consulte o [guia da interface](docs/FASE_9_INTERFACE_WEB.md).
 Na Fase 10, um comando local organiza cenários fictícios com SPADE/XMPP real e
 coleta a avaliação temporal de manifestos publicados, sem novo treinamento com dados reais nem
 alteração do banco operacional. Evidências CSV/JSON e resumo permanecem privados.
 Consulte o [protocolo experimental](docs/FASE_10_VALIDACAO_EXPERIMENTAL.md).
+
+Após a validação manual, o Atendimento informa disponibilidade sem divulgar
+saldos. A tela de Estoque apresenta mensagens por formulário, mínimo com passo
+de uma unidade e entrada decimal, quantidade inicial opcional de matéria-prima
+e um resumo de alertas na navegação. As previsões mostram quantidades inteiras
+somente na apresentação, com datas adaptativas no gráfico. Consulte as
+[correções da validação manual](docs/CORRECOES_VALIDACAO_MANUAL.md) para as regras
+de arredondamento, transações, identificação histórica e validação.
 
 ## Arquitetura
 
@@ -395,6 +404,7 @@ Intenções tratadas:
 - consulta de sabores;
 - consulta de preços;
 - consulta de disponibilidade;
+- disponibilidade ao cliente sem divulgação dos saldos internos;
 - registro de pedido;
 - confirmação;
 - cancelamento.
@@ -511,9 +521,11 @@ Os alertas de risco futuro são reavaliados separadamente por XMPP após mudanç
 de produtos ou da previsão, quando a atualização automática está ativa.
 **Atualizar alerta deste produto** ou
 POST `/api/estoque/alertas/preventivos/<produto_id>` solicita essa avaliação
-explicitamente; **Consultar risco** não altera registros. O horizonte padrão
-é de sete dias e pode ser configurado. Indisponibilidade deixa o risco
-desconhecido e conserva alertas anteriores.
+explicitamente; **Consultar risco** não altera registros. A atualização persistente
+usa exclusivamente `PREDICTIVE_ALERT_HORIZON_DAYS`, cujo padrão é sete dias, e a
+tela mostra esse horizonte sem edição. A consulta de risco aceita horizontes
+personalizados sem efeitos colaterais. Indisponibilidade deixa o risco desconhecido
+e conserva alertas anteriores.
 
 ### Previsões de demanda
 
@@ -521,6 +533,14 @@ A rota `/previsoes` apresenta a publicação do Agente de Previsão, com visão
 geral ou código histórico, filtros de período, agrupamentos diário/semanal/mensal,
 gráfico e tabela. Modelos e métricas são exibidos por produto com seus baselines.
 Códigos sem associação ao catálogo continuam disponíveis para consulta.
+Um código associado mostra o nome do catálogo; um código sem descrição informa
+essa ausência e identifica a categoria separadamente. Nenhum vínculo é inferido.
+
+Cada período exibido usa arredondamento HALF_UP: fração igual ou superior a 0,5
+sobe para o inteiro seguinte. Gráfico e tabela usam os mesmos inteiros, e o total
+é a soma das linhas. O total pode diferir do arredondamento direto da soma decimal,
+de outro agrupamento ou da soma de produtos arredondados separadamente. Previsões
+publicadas, métricas e avaliação de risco continuam usando os valores originais.
 
 O botão de atualização solicita uma tarefa por SPADE/XMPP e acompanha seu
 estado, preservando a publicação anterior durante o trabalho. O recálculo exige
@@ -812,6 +832,7 @@ Funcionalidades já implementadas:
 - atualização de estoque;
 - entrada, saída e ajuste pelo saldo final, com histórico auditável;
 - cadastro e controle manual de matérias-primas;
+- quantidade inicial opcional de matéria-prima, com entrada auditável na mesma transação;
 - mínimos configuráveis e alertas para saldo igual ou inferior ao mínimo;
 - consulta e confirmação Atendimento → Estoque por XMPP real;
 - consulta Estoque → Previsão por XMPP, por produto associado ou visão geral;
@@ -823,8 +844,10 @@ Funcionalidades já implementadas:
 - repetição segura por chave de operação persistente;
 - manutenção do pedido e da chave após falha de confirmação, com substituição ou cancelamento;
 - tela principal de estoque em `/estoque` e consultas GET somente leitura;
+- erros e sucessos próximos a cada formulário e resumo de alertas na navegação;
 - tela de previsões em `/previsoes`, com códigos históricos, período e agrupamentos;
-- gráfico local, valores decimais e comparação por produto com baselines;
+- gráfico local e comparação por produto com baselines;
+- estimativas inteiras na interface, com total igual à soma das linhas arredondadas e decimais preservados no backend;
 - atualização pela tela e acompanhamento de tarefa sem treinamento na thread HTTP;
 - protocolo experimental local com cenários SPADE/XMPP e evidências privadas;
 - tela de vendas;
@@ -841,6 +864,9 @@ Funcionalidades já implementadas:
 - Matérias-primas têm controle manual; abatimento por venda depende de receitas/BOM.
 - Um pedido com múltiplos produtos gera múltiplos registros na tabela `vendas`.
 - A interpretação de linguagem natural ainda é limitada a frases simples.
+- Descrições históricas completas dependem de informação explícita; grupo ou
+  categoria não substituem o nome do produto. Um cadastro descritivo separado
+  permanece como proposta, sem novas associações ou produtos automáticos.
 - A avaliação histórica compara erros em recortes temporais específicos; não
   demonstra significância estatística nem melhoria da operação da fábrica.
 

@@ -36,11 +36,15 @@
         if (className) element.className = className;
         return element;
     }
-    // Nunca converter totais ou quantidades para Number: a API envia decimais exatos.
+    // HALF_UP para quantidades não negativas: a fração 0,5 arredonda para cima.
+    // BigInt conserva a precisão textual; Number serve somente ao desenho do SVG.
+    function roundedUnits(value) {
+        if (typeof value !== "string" || !/^(0|[1-9]\d*)(?:\.\d+)?$/.test(value)) return null;
+        const [integer, decimal = ""] = value.split(".");
+        return BigInt(integer) + (decimal && decimal[0] >= "5" ? 1n : 0n);
+    }
     function quantity(value) {
-        if (typeof value !== "string" || !/^(0|[1-9]\d*)(?:\.\d+)?$/.test(value)) return "Indisponível";
-        const [integer, decimal] = value.split(".");
-        return integer.replace(/\B(?=(\d{3})+(?!\d))/g, ".") + (decimal === undefined ? "" : "," + decimal);
+        return typeof value === "bigint" ? value.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".") : "Indisponível";
     }
     function date(value) {
         if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return "—";
@@ -56,8 +60,9 @@
     }
     function productLabel(product) {
         const code = "Código " + (product ? product.codigo_produto : "");
-        const name = product && product.produto_id != null && product.nome ? product.nome + " · " + code : code;
-        return name + (product && product.categoria ? " · " + product.categoria : "");
+        const name = product && product.produto_id != null && product.nome
+            ? product.nome + " · " + code : code + " · sem descrição cadastrada";
+        return name + (product && product.categoria ? " · Categoria: " + product.categoria : "");
     }
     function metric(value, percent = false) {
         return typeof value === "number" && Number.isFinite(value)
@@ -134,36 +139,53 @@
         if (label !== undefined) element.textContent = label;
         return element;
     }
-    function drawChart(periods) {
+    function drawChart(periods, frequency, units) {
         const svg = byId("previsao-grafico");
         svg.replaceChildren();
         if (!periods.length) return;
+        const sameYear = periods.every((period) => period.cobertura_inicio.slice(0, 4) === periods[0].cobertura_inicio.slice(0, 4));
+        const labelSpacing = sameYear ? 76 : 126;
+        const allDailyDates = frequency === "diaria" && periods.length <= 7;
+        const left = 85, right = 30, top = 25, height = 205;
+        const minimumWidth = Math.max(360, allDailyDates ? left + right + (periods.length - 1) * labelSpacing : 360);
+        const availableWidth = svg.parentElement && svg.parentElement.clientWidth || svg.clientWidth || 900;
+        const canvasWidth = Math.max(availableWidth, minimumWidth);
+        svg.style.minWidth = minimumWidth + "px";
+        svg.setAttribute("viewBox", "0 0 " + canvasWidth + " 290");
+        const width = canvasWidth - left - right;
         // A aproximação em ponto flutuante serve somente às coordenadas do gráfico.
-        const values = periods.map((period) => Number(period.quantidade_prevista));
+        const values = units.map((value) => value === null ? NaN : Number(value));
         if (values.some((value) => !Number.isFinite(value) || value < 0)) {
             svg.append(svgElement("text", {x: 40, y: 120, class: "forecast-chart-label"}, "Consulte os valores na tabela abaixo."));
             return;
         }
-        const left = 85, top = 25, width = 785, height = 205;
         const maximum = Math.max(...values) || 1;
         const x = (index) => left + (values.length === 1 ? width / 2 : index * width / (values.length - 1));
         const y = (value) => top + height - (value / maximum) * height;
         const group = svgElement("g");
-        for (let step = 0; step <= 4; step += 1) {
-            const value = maximum * step / 4;
+        const gridValues = [...new Set([0, 1, 2, 3, 4].map((step) => Math.round(maximum * (step / 4))))];
+        gridValues.forEach((value) => {
             group.append(svgElement("line", {x1: left, x2: left + width, y1: y(value), y2: y(value), class: "forecast-chart-grid"}));
             group.append(svgElement("text", {x: left - 12, y: y(value) + 5, "text-anchor": "end", class: "forecast-chart-label"}, new Intl.NumberFormat("pt-BR", {notation: "compact", maximumFractionDigits: 1}).format(value)));
-        }
+        });
         const points = values.map((value, index) => x(index) + "," + y(value)).join(" ");
         group.append(svgElement("polyline", {points, class: "forecast-chart-line"}));
         values.forEach((value, index) => {
             const circle = svgElement("circle", {cx: x(index), cy: y(value), r: 3.5, class: "forecast-chart-point"});
-            circle.append(svgElement("title", {}, range(periods[index].cobertura_inicio, periods[index].cobertura_fim) + ": " + quantity(periods[index].quantidade_prevista) + " unidades"));
+            circle.append(svgElement("title", {}, range(periods[index].cobertura_inicio, periods[index].cobertura_fim) + ": " + quantity(units[index]) + " unidades estimadas (arredondadas)"));
             group.append(circle);
         });
-        const tickIndices = [...new Set([0, Math.floor((values.length - 1) / 2), values.length - 1])];
+        const capacity = Math.max(2, Math.floor(width / labelSpacing) + 1);
+        const tickCount = Math.min(values.length, allDailyDates ? values.length : capacity);
+        const tickIndices = tickCount === 1 ? [0] : Array.from({length: tickCount}, (_, index) =>
+            Math.round(index * (values.length - 1) / (tickCount - 1)));
         tickIndices.forEach((index) => {
-            group.append(svgElement("text", {x: x(index), y: top + height + 30, "text-anchor": "middle", class: "forecast-chart-label"}, date(periods[index].cobertura_inicio)));
+            const fullDate = date(periods[index].cobertura_inicio);
+            const anchor = values.length === 1 ? "middle" : index === 0 ? "start" : index === values.length - 1 ? "end" : "middle";
+            const label = svgElement("text", {x: x(index), y: top + height + 30, "text-anchor": anchor,
+                class: "forecast-chart-label forecast-chart-x-label", "aria-label": fullDate}, sameYear ? fullDate.slice(0, 5) : fullDate);
+            label.append(svgElement("title", {}, fullDate));
+            group.append(label);
         });
         svg.append(group);
     }
@@ -224,18 +246,20 @@
             input.max = data.cobertura.fim;
         });
         text("previsao-selecao", selected ? productLabel(product || {codigo_produto: selected}) : "Visão geral dos produtos com previsão elegível");
-        text("previsao-total", quantity(data.total_previsto));
+        const units = data.periodos.map((period) => roundedUnits(period.quantidade_prevista));
+        const total = units.some((value) => value === null) ? null : units.reduce((sum, value) => sum + value, 0n);
+        text("previsao-total", quantity(total));
         text("previsao-cobertura", range(data.selecao.data_inicio, data.selecao.data_fim));
         text("previsao-cobertura-completa", "Cobertura completa da publicação: " + range(data.cobertura.inicio, data.cobertura.fim) + ".");
         text("previsao-corte", date(data.cobertura.data_corte));
         text("previsao-publicacao", timestamp(data.cobertura.gerada_em));
-        const rows = data.periodos.map((period) => {
+        const rows = data.periodos.map((period, index) => {
             const row = node("tr");
-            row.append(node("td", range(period.periodo_inicio, period.periodo_fim)), node("td", range(period.cobertura_inicio, period.cobertura_fim) + (period.parcial ? " · parcial" : "")), node("td", quantity(period.quantidade_prevista)));
+            row.append(node("td", range(period.periodo_inicio, period.periodo_fim)), node("td", range(period.cobertura_inicio, period.cobertura_fim) + (period.parcial ? " · parcial" : "")), node("td", quantity(units[index])));
             return row;
         });
         byId("previsao-periodos").replaceChildren(...rows);
-        drawChart(data.periodos);
+        drawChart(data.periodos, data.selecao.granularidade, units);
         renderMetrics(data);
         updateControls(data.atualizacao);
         byId("previsao-painel").hidden = data.periodos.length === 0;
@@ -394,6 +418,10 @@
         pollJob(++jobVersion);
     });
     window.addEventListener("offline", () => notice("previsao-erro", "Sem conexão. Os valores já exibidos pertencem à última consulta carregada."));
+    window.addEventListener("resize", () => {
+        if (currentData) drawChart(currentData.periodos, currentData.selecao.granularidade,
+            currentData.periodos.map((period) => roundedUnits(period.quantidade_prevista)));
+    });
     window.addEventListener("pagehide", () => {
         queryVersion += 1;
         jobVersion += 1;

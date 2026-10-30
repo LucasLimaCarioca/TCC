@@ -157,7 +157,7 @@ def test_resposta_xmpp_perdida_repeticao_recupera_venda(runtime, app, catalogo, 
 
 
 def test_atendimento_consulta_e_confirma_via_estoque(runtime, app, conversar):
-    assert "20 unidades" in conversar("tem 10l chocolate?")
+    assert conversar("tem 10l chocolate?") == "Sim, temos caixa de 10L - chocolate disponível."
     conversar("quero 2 caixas de 10L chocolate")
     assert "Venda registrada!" in conversar("sim")
     with app.app_context():

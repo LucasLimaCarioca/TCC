@@ -81,7 +81,8 @@ class AtendimentoService:
         # A autoridade de estoque registra a venda e a baixa na mesma transação.
         sucesso, mensagem, vendas = self.estoque.registrar_pedido(
             [{"produto_id": produto.id, "quantidade": quantidade}],
-            cliente_nome=cliente_nome
+            cliente_nome=cliente_nome,
+            ocultar_saldo=True
         )
 
         if not sucesso:
@@ -99,7 +100,8 @@ class AtendimentoService:
         sucesso, mensagem, vendas = self.estoque.registrar_pedido(
             itens,
             cliente_nome=cliente_nome,
-            operacao_id=operacao_id
+            operacao_id=operacao_id,
+            ocultar_saldo=True
         )
 
         if not sucesso:

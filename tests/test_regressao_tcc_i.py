@@ -34,7 +34,7 @@ def test_01_consulta_produtos(app, conversar):
 
 def test_02_disponibilidade_especifica(app, conversar):
     assert conversar("Tem caixa de 10L de chocolate?") == (
-        "Sim, temos 20 unidades de caixa de 10L - chocolate em estoque."
+        "Sim, temos caixa de 10L - chocolate disponível."
     )
     assert_sem_pedido_ou_venda(app)
 
@@ -111,8 +111,8 @@ def test_05_produto_sem_estoque(app, catalogo, conversar):
 
 def test_06_quantidade_superior_estoque(app, conversar):
     assert conversar("quero 21 caixas de 10L chocolate") == (
-        "No momento temos apenas 20 unidades de caixa de 10L - chocolate.\n"
-        "Você pode pedir uma quantidade menor ou escolher outro sabor."
+        "A quantidade solicitada de caixa de 10L - chocolate não está disponível.\n"
+        "Você pode pedir uma quantidade menor ou escolher outro produto."
     )
     assert_sem_pedido_ou_venda(app)
     with app.app_context():

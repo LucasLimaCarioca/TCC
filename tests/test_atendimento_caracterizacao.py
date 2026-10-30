@@ -66,7 +66,7 @@ def test_novo_pedido_substitui_contexto(conversar, app, catalogo):
 
 def test_novo_pedido_invalido_mantem_anterior(conversar, app):
     conversar("quero 2 caixas de 10L chocolate")
-    assert conversar("quero 21 caixas de 5L morango").startswith("No momento temos apenas")
+    assert conversar("quero 21 caixas de 5L morango").startswith("A quantidade solicitada de")
     assert "Total do pedido: R$ 204.00" in conversar("sim")
     with app.app_context():
         assert Venda.query.one().quantidade == 2

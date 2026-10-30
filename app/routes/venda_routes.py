@@ -10,6 +10,7 @@ from app.agents.atendimento_agent import (
     AtendimentoAgent
 )
 from app.database import db
+from app.dialogue.response_builder import ResponseBuilder
 from app.models.cliente import Cliente
 from app.models.historico_conversa import HistoricoConversa
 from app.models.produto import Produto
@@ -79,6 +80,7 @@ def carregar_historico(cliente_nome):
     ).all()
 
     mensagens = []
+    respostas = ResponseBuilder()
 
     for registro in registros:
         mensagens.append({
@@ -87,7 +89,7 @@ def carregar_historico(cliente_nome):
         })
         mensagens.append({
             "tipo": "bot",
-            "texto": registro.resposta_agente
+            "texto": respostas.redigir_saldos_historicos(registro.resposta_agente)
         })
 
     return mensagens

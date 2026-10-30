@@ -19,6 +19,8 @@ catálogo. O código textual preserva zeros à esquerda; nome do catálogo apare
 somente quando existe associação explícita por `Produto.codigo_externo`.
 Grupo e categoria vêm dos metadados preparados da execução. A consulta não cria
 produtos nem associa códigos por semelhança de nomes ou equivalência numérica.
+Sem descrição cadastrada, o rótulo indica essa ausência e identifica a categoria
+como categoria, sem usá-la como nome comercial completo.
 
 A visão geral soma todos os códigos elegíveis da publicação. Um produto sem
 previsão não representa demanda zero. Esse total agrega quantidades comerciais;
@@ -27,10 +29,24 @@ não converte produtos para litros, peso, faturamento ou consumo de insumos.
 O intervalo deve estar ordenado e inteiramente dentro da cobertura publicada.
 Sem datas, a consulta usa toda a cobertura. A aplicação primeiro seleciona os
 valores diários e depois os agrega com `Decimal`. Semanas vão de segunda a
-domingo; meses seguem o calendário. A tabela identifica a cobertura efetiva e
-os períodos parciais, preservando o decimal textual recebido. A conversão
-numérica feita para desenhar o gráfico não substitui as quantidades da tabela
-nem participa dos totais ou das regras de estoque.
+domingo; meses seguem o calendário. A resposta preserva os decimais textuais,
+a cobertura efetiva e os períodos parciais.
+
+Após a validação manual, gráfico e tabela apresentam estimativas inteiras.
+Cada período usa HALF_UP: fração menor que 0,5 fica no inteiro inferior e fração
+igual ou maior que 0,5 sobe para o superior. A operação usa o decimal textual,
+sem conversão intermediária para ponto flutuante. O total exibido soma os
+inteiros das linhas, e os pontos do gráfico usam esses mesmos valores.
+
+Arredondar cada período pode produzir um total diferente de arredondar a soma
+decimal. Também pode haver diferença entre agrupamentos ou em relação à soma de
+produtos arredondados separadamente. Essas diferenças são explicadas na tela e
+não alteram a publicação, os artefatos, as métricas ou os alertas preventivos.
+A conversão numérica para coordenadas SVG participa somente do desenho.
+
+Consultas diárias com até sete dias mostram todas as datas no eixo X. Intervalos
+maiores usam espaçamento adaptativo de rótulos, sem remover períodos da tabela.
+Em telas estreitas, o gráfico permite rolagem horizontal para preservar a leitura.
 
 ## Modelos e avaliação
 
@@ -203,6 +219,8 @@ Comandos de verificação:
 python -m pip check
 node --check app/static/js/estoque.js
 node --check app/static/js/previsoes.js
+node --check app/static/js/notificacoes_estoque.js
+node --test tests/js/*.test.cjs
 python -m pytest -q
 python -m pytest -q --spade \
   tests/test_regressao_tcc_i.py \
@@ -215,5 +233,7 @@ python3 scripts/check_private_data.py
 git diff --check
 ```
 
-A próxima fase é a Fase 10, dedicada à validação experimental do TCC II. Ela
-não começa automaticamente com a implementação desta interface.
+A Fase 10 e seu protocolo de validação experimental são descritos no
+[guia de validação experimental](FASE_10_VALIDACAO_EXPERIMENTAL.md). As correções
+posteriores desta interface e seus limites estão no
+[registro da validação manual](CORRECOES_VALIDACAO_MANUAL.md).

@@ -1,8 +1,37 @@
 """Respostas textuais do TCC I; não consulta o banco nem altera estado."""
 
+import re
+
 
 class ResponseBuilder:
     """Formata produtos, itens e vendas com os textos e valores do protótipo."""
+
+    @staticmethod
+    def redigir_saldos_historicos(resposta):
+        """Atualiza somente formatos antigos de estoque na projeção da conversa.
+
+        O registro persistido permanece intacto. Números de preços, embalagens
+        e quantidades pedidas não são tratados como saldos.
+        """
+        if not isinstance(resposta, str):
+            return resposta
+        especifica = re.fullmatch(r"Sim, temos [0-9]+ unidades de ([^\r\n]+) em estoque\.", resposta)
+        if especifica:
+            return f"Sim, temos {especifica.group(1)} disponível."
+        insuficiente = re.match(r"\ANo momento temos apenas [0-9]+ unidades de ([^\r\n]+)\.(?=\r?\n|\Z)", resposta)
+        if insuficiente:
+            return (f"A quantidade solicitada de {insuficiente.group(1)} não está disponível."
+                    + resposta[insuficiente.end():])
+        if resposta.startswith(("Disponibilidade atual:\n", "Disponibilidade atual:\r\n")):
+            linhas = []
+            for linha in resposta.splitlines(keepends=True):
+                saldo = re.fullmatch(r"([^\r\n]+): ([0-9]+) unidades(\r?\n)?", linha)
+                if saldo:
+                    estado = "disponível" if int(saldo.group(2)) > 0 else "indisponível"
+                    linha = f"{saldo.group(1)}: {estado}{saldo.group(3) or ''}"
+                linhas.append(linha)
+            return "".join(linhas)
+        return resposta
 
     def saudacao(self):
         return (
@@ -83,11 +112,10 @@ class ResponseBuilder:
                 )
 
             return (
-                f"Sim, temos {saldo} "
-                f"unidades de {produto_especifico.nome} em estoque."
+                f"Sim, temos {produto_especifico.nome} disponível."
             )
 
-        # Sem produto específico, mostra a quantidade disponível de cada produto ativo.
+        # A disponibilidade usa o saldo internamente, sem revelá-lo ao cliente.
 
         if not produtos:
             return "No momento não há produtos ativos para consulta."
@@ -95,9 +123,10 @@ class ResponseBuilder:
         resposta = "Disponibilidade atual:\n"
 
         for produto in produtos:
+            saldo = saldos.get(produto.id, produto.quantidade_disponivel)
             resposta += (
                 f"{produto.categoria} - {produto.sabor}: "
-                f"{saldos.get(produto.id, produto.quantidade_disponivel)} unidades\n"
+                f"{'disponível' if saldo > 0 else 'indisponível'}\n"
             )
 
         return resposta
@@ -189,15 +218,14 @@ class ResponseBuilder:
 
     def estoque_insuficiente(self, produto, saldo=None):
         saldo = produto.quantidade_disponivel if saldo is None else saldo
-        if saldo == 0:
+        if saldo <= 0:
             return (
                 f"No momento não temos {produto.nome} em estoque.\n"
                 "Você pode escolher outro sabor ou categoria."
             )
         return (
-            f"No momento temos apenas "
-            f"{saldo} unidades de {produto.nome}.\n"
-            "Você pode pedir uma quantidade menor ou escolher outro sabor."
+            f"A quantidade solicitada de {produto.nome} não está disponível.\n"
+            "Você pode pedir uma quantidade menor ou escolher outro produto."
         )
 
     def produto_nao_encontrado(self):

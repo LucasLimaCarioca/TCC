@@ -61,7 +61,7 @@ def test_estoque_insuficiente_preserva_pedido_e_permite_proxima_acao(app, catalo
         original_key = ContextoConversa.query.one().operacao_id
         estoque.movimentar("produto", product, "ajuste", 1, "Contagem fictícia")
     failed = conversar("sim")
-    assert failed.startswith("No momento temos apenas 1 unidades")
+    assert failed.startswith("Não há disponibilidade para a quantidade solicitada.")
     assert "enviar outro pedido" in failed and "cancelar" in failed
     with app.app_context():
         assert ContextoConversa.query.one().operacao_id == original_key

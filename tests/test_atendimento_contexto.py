@@ -47,7 +47,8 @@ def test_confirmacao_revalida_estoque(app, catalogo, conversar):
         key = ContextoConversa.query.one().operacao_id
         db.session.get(Produto, catalogo["caixa de 10L - chocolate"]).quantidade_disponivel = 1
         db.session.commit()
-    assert conversar("sim") == ("No momento temos apenas 1 unidades de caixa de 10L - chocolate.\n"
+    assert conversar("sim") == ("Não há disponibilidade para a quantidade solicitada.\n"
+        "Você pode pedir uma quantidade menor ou escolher outro produto.\n"
         "O pedido continua pendente. Você pode enviar outro pedido ou responder não para cancelar.")
     with app.app_context():
         assert Venda.query.count() == 0

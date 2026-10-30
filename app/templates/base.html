@@ -26,11 +26,22 @@
         <a href="{{ url_for('estoque.tela_estoque') }}"{% if request.endpoint == 'estoque.tela_estoque' %} aria-current="page"{% endif %}>Estoque</a>
         <a href="{{ url_for('previsao.tela_previsoes') }}"{% if request.endpoint == 'previsao.tela_previsoes' %} aria-current="page"{% endif %}>Previsões</a>
         <a href="{{ url_for('venda.tela_vendas') }}"{% if request.endpoint == 'venda.tela_vendas' %} aria-current="page"{% endif %}>Vendas</a>
+        <details id="estoque-notificacoes" class="stock-notifications" data-api="{{ url_for('estoque.alertas_api') }}">
+            <summary aria-label="Consultar alertas de estoque">Alertas <span id="notificacoes-contagem" class="stock-alert-count" aria-hidden="true">…</span></summary>
+            <div class="stock-notification-panel" role="region" aria-label="Resumo de alertas de estoque">
+                <p id="notificacoes-status" role="status" aria-live="polite">Consultando alertas…</p>
+                <ul id="notificacoes-resumo"></ul>
+                <a href="{{ url_for('estoque.tela_estoque') }}#alertas-estoque">Consultar alertas no estoque</a>
+                <button id="notificacoes-atualizar" type="button">Atualizar contagem</button>
+            </div>
+        </details>
     </nav>
 </header>
 
 {% block content %}
 {% endblock %}
+
+<script src="{{ url_for('static', filename='js/notificacoes_estoque.js') }}" defer></script>
 
 </body>
 

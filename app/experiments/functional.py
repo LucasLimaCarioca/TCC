@@ -201,7 +201,7 @@ class _Cases:
 
     def tcc02(self):
         _require(self.chat("Tem caixa de 10L de chocolate?") ==
-                 "Sim, temos 20 unidades de caixa de 10L - chocolate em estoque.")
+                 "Sim, temos caixa de 10L - chocolate disponível.")
         self.no_order()
 
     def tcc03(self):
@@ -234,7 +234,8 @@ class _Cases:
         self.no_order()
 
     def tcc06(self):
-        _require("apenas 20 unidades" in self.chat("quero 21 caixas de 10L chocolate"))
+        _require("A quantidade solicitada de caixa de 10L - chocolate não está disponível." in
+                 self.chat("quero 21 caixas de 10L chocolate"))
         self.no_order()
         _require(self.stock() == 20)
 

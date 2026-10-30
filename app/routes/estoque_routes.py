@@ -40,7 +40,8 @@ def materias_primas_api():
     dados = _dados()
     return jsonify(client.executar("cadastrar_materia_prima", codigo=dados.get("codigo"),
         nome=dados.get("nome"), unidade_medida=dados.get("unidade_medida"),
-        estoque_minimo=dados.get("estoque_minimo", "0"))), 201
+        estoque_minimo=dados.get("estoque_minimo", "0"),
+        quantidade_inicial=dados.get("quantidade_inicial", "0"))), 201
 
 
 @estoque_bp.route("/api/estoque/movimentacoes", methods=["GET", "POST"])

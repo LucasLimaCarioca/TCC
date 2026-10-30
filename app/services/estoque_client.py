@@ -27,7 +27,8 @@ class EstoqueClient:
                 raise EstoqueError(error.code, str(error)) from None
         return estoque_service.consultar_disponibilidade(itens)
 
-    def registrar_pedido(self, itens, cliente_nome="Cliente Simulado", operacao_id=None):
+    def registrar_pedido(self, itens, cliente_nome="Cliente Simulado", operacao_id=None, *, ocultar_saldo=False):
+        """Mantém o detalhe interno; o Atendimento pode ocultar o saldo na recusa."""
         try:
             grouped = estoque_service.agrupar_itens(itens)
             cliente_nome = estoque_service.validar_cliente(cliente_nome)
@@ -43,6 +44,9 @@ class EstoqueClient:
             if error.code not in {"INVALID_QUANTITY", "INVALID_INPUT", "PRODUCT_NOT_FOUND",
                                   "INSUFFICIENT_STOCK", "INVALID_OPERATION"}:
                 raise
+            if ocultar_saldo and error.code == "INSUFFICIENT_STOCK":
+                return False, ("Não há disponibilidade para a quantidade solicitada.\n"
+                               "Você pode pedir uma quantidade menor ou escolher outro produto."), []
             return False, str(error), []
         db.session.expire_all()
         vendas = [db.session.get(Venda, key) for key in result["vendas"]]

@@ -43,6 +43,10 @@ jobs:
         run: |
           node --check app/static/js/estoque.js
           node --check app/static/js/previsoes.js
+          node --check app/static/js/notificacoes_estoque.js
+
+      - name: Testar interfaces JavaScript
+        run: node --test tests/js/*.test.cjs
 
       - name: Executar suíte completa
         run: python -m pytest -q
