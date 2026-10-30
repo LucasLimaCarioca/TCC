@@ -22,6 +22,7 @@ from app.database import db
 from app.models.movimentacao_estoque import MovimentacaoEstoque
 from app.models.produto import Produto
 from app.models.venda import Venda
+from app.models.venda_historica import VendaHistorica
 from app.services import estoque_service
 
 
@@ -41,6 +42,25 @@ def fictitious_forecast_payload(product, total, *, horizon=7, start=None):
             "total_previsto": str(total), "periodos": periods,
             "modelo": "ficticio" if product else {"FICTICIO-001": "ficticio"},
             "gerada_em": generated.isoformat(), "versao": "ficticia-v1", "execucao_id": "previsao-ficticia"}
+
+
+@pytest.fixture
+def previsao_ficticia_revisada(app, catalogo):
+    """Revisão explícita de identidade sintética para os RPCs simulados abaixo."""
+    from app.services.catalogacao_service import _review
+
+    identifier = catalogo["caixa de 10L - chocolate"]
+    with app.app_context():
+        product = db.session.get(Produto, identifier)
+        product.codigo_externo = "FICTICIO-001"
+        db.session.add(VendaHistorica(codigo_produto="FICTICIO-001", data=datetime(2030, 1, 1).date(),
+            codigo_grupo="GRUPO-FICTICIO", categoria=product.categoria, quantidade=1,
+            numero_pedidos=1, source_hash="a" * 64, dataset_hash="b" * 64))
+        db.session.flush()
+        _review(db.session, product, {"FICTICIO-001": {"categorias": [product.categoria],
+            "grupos": ["GRUPO-FICTICIO"]}}, "Operador fictício", "Identidade fictícia conferida para o teste RPC.")
+        db.session.commit()
+    return identifier
 
 
 def free_ports():
@@ -175,8 +195,8 @@ def test_estoque_consulta_previsao_real_sem_inventar_resultado(runtime, app, cat
 
 
 @pytest.mark.parametrize(("total", "risco"), [(5, False), (15, True)])
-def test_estoque_consume_previsao_ficticia_valida(runtime, app, catalogo, monkeypatch, total, risco):
-    product = catalogo["caixa de 10L - chocolate"]
+def test_estoque_consume_previsao_ficticia_valida(runtime, app, previsao_ficticia_revisada, monkeypatch, total, risco):
+    product = previsao_ficticia_revisada
     with app.app_context():
         estoque_service.configurar_minimo("produto", product, 10)
 
@@ -204,8 +224,8 @@ def test_estoque_nao_calcula_risco_com_previsao_vencida(runtime, catalogo, monke
     assert "saldo_projetado" not in result
 
 
-def test_estoque_preserva_decimal_ao_consumir_previsao(runtime, catalogo, monkeypatch):
-    product = catalogo["caixa de 10L - chocolate"]
+def test_estoque_preserva_decimal_ao_consumir_previsao(runtime, previsao_ficticia_revisada, monkeypatch):
+    product = previsao_ficticia_revisada
 
     async def fractional(sender, envelope):
         return encode(sender, PREVISAO, fictitious_forecast_payload(product, "0.123456789"),

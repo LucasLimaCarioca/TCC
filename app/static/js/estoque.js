@@ -56,8 +56,14 @@
     }
     function validateDecimal(input) {
         const optionalBlank = !input.required && input.value.trim() === "";
-        const valid = optionalBlank || decimalUnits(input.value) !== null;
-        input.setCustomValidity(valid ? "" : "Informe zero ou um valor positivo com até nove casas decimais, usando ponto ou vírgula.");
+        const integerOnly = input.dataset.integer === "true";
+        const current = decimalUnits(input.value);
+        const valid = optionalBlank || (integerOnly
+            ? /^\d+$/.test(input.value.trim()) && current !== null && current / scale <= BigInt(Number.MAX_SAFE_INTEGER)
+            : current !== null);
+        input.setCustomValidity(valid ? "" : integerOnly
+            ? "Informe uma quantidade inteira não negativa de até 9.007.199.254.740.991 unidades."
+            : "Informe zero ou um valor positivo com até nove casas decimais, usando ponto ou vírgula.");
         return valid;
     }
     for (const input of document.querySelectorAll("[data-decimal]")) {
@@ -69,12 +75,16 @@
         for (const button of control.querySelectorAll("[data-step]")) {
             button.addEventListener("click", () => {
                 const current = decimalUnits(input.value);
-                if (current === null) {
-                    validateDecimal(input);
+                if (!validateDecimal(input) || current === null) {
                     input.reportValidity();
                     return;
                 }
                 const next = current + BigInt(button.dataset.step) * scale;
+                if (input.dataset.integer === "true" && next / scale > BigInt(Number.MAX_SAFE_INTEGER)) {
+                    input.setCustomValidity("A quantidade excede o limite inteiro aceito pela interface.");
+                    input.reportValidity();
+                    return;
+                }
                 input.value = decimalText(next < 0n ? 0n : next);
                 input.dispatchEvent(new Event("input", {bubbles: true}));
             });
@@ -82,8 +92,8 @@
     }
     function itemData(form, field) {
         const [tipo_item, id] = form.elements.namedItem("item").value.split(":");
-        const value = form.elements[field].value;
-        return {tipo_item, item_id: Number(id), [field]: tipo_item === "produto" ? Number(value) : value};
+        const value = decimalUnits(form.elements[field].value);
+        return {tipo_item, item_id: Number(id), [field]: tipo_item === "produto" ? Number(value / scale) : decimalText(value)};
     }
     async function send(url, method, data, key) {
         let response;
@@ -183,7 +193,12 @@
         if (!form) continue;
         const field = form.elements.quantidade || form.elements.estoque_minimo;
         const update = () => {
-            field.step = form.elements.namedItem("item").value.startsWith("produto:") ? "1" : "0.000000001";
+            const integerOnly = form.elements.namedItem("item").value.startsWith("produto:");
+            field.dataset.integer = String(integerOnly);
+            field.step = "1";
+            field.inputMode = integerOnly ? "numeric" : "decimal";
+            field.pattern = integerOnly ? "[0-9]+" : "[0-9]+([.,][0-9]{1,9})?";
+            validateDecimal(field);
             if (form.elements.tipo_movimentacao) {
                 const adjustment = form.elements.tipo_movimentacao.value === "ajuste";
                 document.getElementById("quantidade-label").textContent = adjustment ? "Saldo final desejado" : "Quantidade da movimentação";

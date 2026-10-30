@@ -95,32 +95,30 @@ seus arquivos devem permanecer nas pastas privadas previstas.
 
 A consulta por produto recebe o `Produto.id` do catálogo e resolve o código
 histórico exclusivamente por `Produto.codigo_externo`. Não associa registros
-por nome, sabor, grupo ou categoria. Um produto sem associação explícita retorna
+por ID numérico, nome, sabor, grupo ou categoria. Um produto sem associação explícita retorna
 `PRODUCT_UNMAPPED`; um código associado sem previsão nessa execução retorna
 `HISTORY_NOT_FOUND`.
+
+Após a nova rodada de validação, a consulta operacional também exige revisão
+explícita válida do vínculo. Uma associação existente não é, por si só, prova
+de correspondência comercial. Vínculos legados e suspeitos ficam pendentes até
+conferência pelo operador e não habilitam alertas preventivos silenciosamente.
 
 Todos os códigos presentes na execução são preservados na persistência. Os
 que ainda não possuem associação ao catálogo conservam `produto_id` nulo nas
 linhas históricas de previsão. Isso não cria produtos nem altera o catálogo.
 
-O operador pode registrar um vínculo informado explicitamente, substituindo
-os placeholders pelo ID do catálogo e pelo código histórico correto:
+O fluxo recomendado para associar ou rever códigos é a tela `/catalogacao`,
+que exige confirmação explícita, identificação do operador, motivo e dados
+comerciais conferidos. Ela permite usar um produto existente livre ou criar um
+novo cadastro com ativação explícita. Alterações são auditáveis e reversíveis
+quanto ao vínculo; não reescrevem histórico, saldos ou previsões publicadas.
 
-```bash
-flask --app app.app:create_app previsao associar-produto \
-  --produto-id '<id-do-catalogo>' --codigo-externo '<codigo-historico>'
-```
-
-O código precisa existir na execução ativa. Repetir o mesmo vínculo é seguro;
-um código já associado a outro produto ou uma tentativa de substituir uma
-associação diferente retorna `MAPPING_CONFLICT`. O comando não escolhe o
-vínculo pelo operador e não deduz correspondências pelos rótulos.
-
-Na configuração local, o usuário confirmou que os IDs correspondem aos códigos
-numericamente, desconsiderando apenas zeros à esquerda. Essa regra foi aplicada
-somente quando havia um código elegível único, preservando o texto completo do
-código. Itens sem previsão elegível equivalente ficaram sem vínculo e foram
-listados em relatório privado para revisão.
+O código textual, inclusive zeros à esquerda, é preservado. Não é válida a
+suposição de que o ID interno e o código histórico correspondam numericamente.
+Associações feitas anteriormente sob essa hipótese são mantidas para revisão,
+sem correção ou aprovação automática. Consulte
+[a nova validação de catalogação](NOVA_VALIDACAO_CATALOGACAO.md).
 
 `produto_id=null` solicita a visão geral. Ela soma todos os produtos da execução,
 inclusive códigos ainda não associados ao catálogo. Como na Fase 6, esse total

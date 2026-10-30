@@ -29,6 +29,15 @@ def configured(app, project):
         db.session.add_all([product, unmapped, missing])
         db.session.commit()
         ids = product.id, unmapped.id, missing.id
+        # Identidade fictícia explicitamente conferida; dados legados reais não
+        # recebem aprovação automática na migração nem na carga de previsões.
+        from app.services.catalogacao_service import _review
+        report = json.loads(paths["report"].read_text())
+        metadata = {code: {"categorias": [item["categoria"]] if item.get("categoria") else [],
+                           "grupos": [item["codigo_grupo"]] if item.get("codigo_grupo") else []}
+                    for code, item in report["dataset"]["products"].items()}
+        _review(db.session, product, metadata, "Operador fictício", "Identidade fictícia conferida no fixture.")
+        db.session.commit()
     return service, paths, ids
 
 
@@ -216,13 +225,15 @@ def test_cli_carregar_nao_expoe_previsoes_ou_codigos(configured):
 def test_associar_somente_vinculo_explicito_e_repeticao_sem_duplicar(configured):
     service, paths, (_, unmapped, _) = configured
     service.carregar(paths["manifest"])
-    service.associar_produto(unmapped, "00220")
-    service.associar_produto(unmapped, "00220")
+    confirmation = {"confirmar": True, "operador": "Operador fictício", "motivo": "Conferência fictícia explícita."}
+    service.associar_produto(unmapped, "00220", **confirmation)
+    service.associar_produto(unmapped, "00220", **confirmation)
     assert service.consultar(unmapped)["codigo_produto"] == "00220"
     with service.app.app_context():
         assert db.session.get(Produto, unmapped).codigo_externo == "00220"
     response = service.app.test_cli_runner().invoke(args=["previsao", "associar-produto",
-        "--produto-id", str(unmapped), "--codigo-externo", "00220"])
+        "--produto-id", str(unmapped), "--codigo-externo", "00220", "--confirmar",
+        "--operador", "Operador fictício", "--motivo", "Conferência fictícia explícita."])
     assert response.exit_code == 0 and "00220" not in response.output
 
 

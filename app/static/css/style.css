@@ -360,6 +360,15 @@ body {
     .stock-notification-panel { right: 0; }
 }
 
+.environment-banner { margin: 0; padding: 12px 24px; background: #fff0c5; color: #684600; border-bottom: 2px solid #9b6500; }
+.demo-badge { display: inline-block; padding: 3px 7px; background: #fff0c5; color: #684600; border-radius: 5px; }
+.catalogue-page [hidden] { display: none !important; }
+.catalogue-fields { display: flex; flex-wrap: wrap; gap: 12px; flex: 1 1 100%; border: 1px solid #b8c9c1; border-radius: 6px; padding: 16px; min-width: 0; }
+.catalogue-confirmation { flex-basis: 100%; flex-direction: row !important; align-items: start; line-height: 1.5; }
+.catalogue-confirmation input { margin-top: 4px; flex: 0 0 auto; }
+.catalogue-page input, .catalogue-page select { box-sizing: border-box; max-width: 100%; }
+.catalogue-page .stock-form-feedback { overflow-wrap: anywhere; }
+
 /* Interface de previsão: estilos locais, sem alterar a estrutura do chat. */
 .nav-links { flex-wrap: wrap; }
 .nav-links a[aria-current="page"] { background: rgba(255, 255, 255, 0.2); }
@@ -408,6 +417,8 @@ body {
 .forecast-chart-line { fill: none; stroke: #087461; stroke-width: 3; stroke-linejoin: round; }
 .forecast-chart-point { fill: #087461; stroke: white; stroke-width: 1.5; }
 .forecast-chart-label { fill: #52645b; font: 14px Arial, sans-serif; }
+.forecast-chart-value-label { fill: #075e54; font-weight: bold; paint-order: stroke; stroke: white; stroke-width: 4px; stroke-linejoin: round; }
+.forecast-chart-point:focus { outline: none; stroke: #9b6500; stroke-width: 3px; }
 .forecast-table caption { text-align: left; font-weight: bold; padding: 0 0 12px; color: #075e54; }
 .forecast-table th, .forecast-table td { vertical-align: top; line-height: 1.45; }
 .forecast-table td:last-child { font-variant-numeric: tabular-nums; }

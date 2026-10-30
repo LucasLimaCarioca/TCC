@@ -1,0 +1,76 @@
+{% extends 'base.html' %}
+{% block content %}
+<main class="page-container catalogue-page" id="catalogacao-app">
+    <section class="content-panel">
+        <h1>Catalogação do histórico</h1>
+        <p>O código histórico identifica observações de vendas. O ID interno identifica um cadastro de estoque. Eles não são equivalentes.</p>
+        <p>Confira a identidade comercial antes de associar ou revisar. Categorias diferentes são um indício para conferência, não uma prova de erro. Vínculos pendentes não habilitam previsões por produto para os alertas preventivos.</p>
+        <p>Códigos sem nome, preço ou situação comercial confirmados devem continuar pendentes. Esta tela não altera as vendas históricas nem as previsões publicadas.</p>
+        <button type="button" id="catalogacao-atualizar">Atualizar listagem</button>
+        <p id="catalogacao-status" role="status" aria-live="polite">Carregando os códigos históricos…</p>
+        <p id="catalogacao-erro" class="stock-form-feedback stock-feedback-error" role="alert" tabindex="-1" hidden></p>
+        <div class="stock-table-wrap" role="region" aria-label="Códigos históricos e vínculos" tabindex="0">
+            <table class="data-table">
+                <thead><tr><th>Código histórico</th><th>Grupo e categoria históricos</th><th>Cadastro operacional</th><th>Revisão</th><th>Conferência</th><th>Ação</th></tr></thead>
+                <tbody id="catalogacao-codigos"></tbody>
+            </table>
+        </div>
+    </section>
+    <section class="content-panel">
+        <h2>Catalogar ou revisar um código</h2>
+        <form id="catalogacao-form" class="stock-form" method="post" action="/api/catalogacao/operacoes">
+            <label>Código histórico <select name="codigo_produto" required></select></label>
+            <label>Operação <select name="acao" required>
+                <option value="associar">Associar a um cadastro existente</option>
+                <option value="criar">Cadastrar um produto operacional</option>
+                <option value="revisar">Confirmar a revisão do vínculo atual</option>
+                <option value="alterar">Transferir o vínculo para outro cadastro</option>
+                <option value="desassociar">Retirar o vínculo atual</option>
+            </select></label>
+            <p id="catalogacao-selecao"></p>
+            <label id="catalogacao-alvo">Cadastro operacional de destino (ID interno)
+                <select name="produto_id"></select>
+            </label>
+            <fieldset id="catalogacao-novo" class="catalogue-fields" hidden disabled>
+                <legend>Dados comerciais confirmados do novo produto</legend>
+                <label>Nome completo <input name="nome" maxlength="100" required></label>
+                <label>Categoria <input name="categoria" maxlength="100" required></label>
+                <label>Sabor ou variação <input name="sabor" maxlength="100" required></label>
+                <label>Preço (R$) <input name="preco" type="text" inputmode="decimal" pattern="[0-9]+([.,][0-9]{1,2})?" required></label>
+                <label>Estoque inicial (unidades inteiras) <input name="estoque_inicial" type="text" inputmode="numeric" pattern="[0-9]+" required></label>
+                <label>Estoque mínimo (unidades inteiras) <input name="estoque_minimo" type="text" inputmode="numeric" pattern="[0-9]+" required></label>
+                <label>Situação comercial <select name="situacao" required>
+                    <option value="">Escolha após conferir</option><option value="inativo">Inativo / descontinuado / situação desconhecida</option><option value="ativo">Ativo e comercializado</option>
+                </select></label>
+                <label>Descrição (opcional) <input name="descricao" maxlength="255"></label>
+            </fieldset>
+            <p>O estoque inicial positivo gera uma entrada auditável, na mesma transação do cadastro. Um produto inativo não é disponibilizado para vendas. Nenhum valor comercial é preenchido por inferência.</p>
+            <label>Operador responsável <input name="operador" maxlength="100" autocomplete="off" required></label>
+            <label>Motivo e referência da conferência <input name="motivo" maxlength="500" required></label>
+            <label class="catalogue-confirmation"><input name="confirmar" type="checkbox" required> Conferi o código textual e os dados comerciais acima e confirmo explicitamente esta operação.</label>
+            <button type="submit">Registrar operação confirmada</button>
+            <p id="catalogacao-feedback" class="stock-form-feedback" role="status" aria-live="polite" tabindex="-1" hidden></p>
+        </form>
+    </section>
+    <section class="content-panel">
+        <h2>Auditoria e reversão de vínculos</h2>
+        <p>A reversão registra uma nova operação e restaura somente os vínculos e suas revisões. Ela preserva produtos criados, saldos, movimentos, vendas e previsões. Se o estado já mudou, é necessário atualizar e revisar novamente.</p>
+        <div class="stock-table-wrap" role="region" aria-label="Operações de catalogação" tabindex="0">
+            <table class="data-table">
+                <thead><tr><th>Data (UTC)</th><th>Operação</th><th>Códigos</th><th>Operador e motivo</th><th>Reversão</th></tr></thead>
+                <tbody id="catalogacao-operacoes"></tbody>
+            </table>
+        </div>
+        <form id="catalogacao-reverter" class="stock-form" method="post" action="/api/catalogacao/operacoes">
+            <label>Operação a reverter <select name="reverter_operacao_id" required></select></label>
+            <label>Operador responsável <input name="operador" maxlength="100" autocomplete="off" required></label>
+            <label>Motivo da reversão <input name="motivo" maxlength="500" required></label>
+            <label class="catalogue-confirmation"><input name="confirmar" type="checkbox" required> Confirmo a reversão do vínculo selecionado e entendo que o estoque não será desfeito.</label>
+            <button type="submit">Registrar reversão confirmada</button>
+            <p id="catalogacao-reverter-feedback" class="stock-form-feedback" role="status" aria-live="polite" tabindex="-1" hidden></p>
+        </form>
+    </section>
+</main>
+<noscript><p class="environment-banner">Ative o JavaScript para consultar e confirmar operações de catalogação.</p></noscript>
+<script src="{{ url_for('static', filename='js/catalogacao.js') }}" defer></script>
+{% endblock %}

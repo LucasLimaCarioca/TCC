@@ -141,6 +141,15 @@ def _prepare(workspace):
         db.session.add(Cliente(nome="Cliente Simulado"))
         db.session.commit()
         catalog = {product.nome: product.id for product in products}
+        from app.services.catalogacao_service import _review
+        report = json.loads(paths["report"].read_text())
+        metadata = {code: {"categorias": [item["categoria"]] if item.get("categoria") else [],
+                           "grupos": [item["codigo_grupo"]] if item.get("codigo_grupo") else []}
+                    for code, item in report["dataset"]["products"].items()}
+        for product in products:
+            if product.codigo_externo:
+                _review(db.session, product, metadata, "Operador fictício", "Catálogo sintético do experimento conferido.")
+        db.session.commit()
     return application, catalog, today.isoformat()
 
 

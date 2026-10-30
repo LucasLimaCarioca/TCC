@@ -180,6 +180,20 @@ def consultar_produto(produto_id):
                 "estoque_minimo": produto.estoque_minimo}
 
 
+def conferir_associacao(produto_id, codigo_produto):
+    """Revalida o vínculo depois do RPC, sem efeitos colaterais."""
+    from app.services.catalogacao_service import associacao_revisada
+    with Session(db.engine) as session:
+        produto = _item(session, "produto", produto_id)
+        return {"confirmada": produto.codigo_externo == codigo_produto
+                and associacao_revisada(session, produto)}
+
+
+def catalogar_historico(**dados):
+    from app.services.catalogacao_service import executar_catalogacao
+    return executar_catalogacao(**dados)
+
+
 def registrar_venda(itens, cliente_nome="Cliente Simulado", operacao_id=None):
     grouped = agrupar_itens(itens)
     cliente_nome = validar_cliente(cliente_nome)
@@ -313,7 +327,9 @@ def visao_estoque():
         from app.models.previsao_execucao import PrevisaoExecucao
         from app.services.alerta_preventivo_service import estado_alerta_preventivo
         active_run = session.scalar(select(PrevisaoExecucao.id).where(PrevisaoExecucao.ativa.is_(True)))
-        evaluations = {alert.id: estado_alerta_preventivo(alert, alert.produto, active_run)
+        from app.services.catalogacao_service import associacao_revisada
+        evaluations = {alert.id: estado_alerta_preventivo(alert, alert.produto, active_run,
+                        associacao_confirmada=associacao_revisada(session, alert.produto))
                        for alert in alerts if alert.tipo_alerta == "risco_futuro"}
         return {
             "produtos": [{"produto_id": p.id, "nome": p.nome, "categoria": p.categoria, "sabor": p.sabor,

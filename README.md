@@ -516,6 +516,11 @@ Tela principal de controle que mostra:
 - status de estoque;
 - matérias-primas, mínimos configuráveis, alertas e movimentações.
 
+Os controles de movimentação e mínimo alteram uma unidade por clique,
+preservando a fração nas matérias-primas. A entrada manual aceita ponto ou
+vírgula e até nove casas decimais; produtos acabados continuam exigindo inteiros.
+Os botões respeitam zero e usam aritmética decimal exata na interface.
+
 As consultas GET são somente leitura. Vendas e alterações de estoque/mínimo
 atualizam os alertas de estoque mínimo na própria transação; o botão de
 sincronização ou POST `/api/estoque/alertas/sincronizar` revisa itens legados.
@@ -529,6 +534,31 @@ tela mostra esse horizonte sem edição. A consulta de risco aceita horizontes
 personalizados sem efeitos colaterais. Indisponibilidade deixa o risco desconhecido
 e conserva alertas anteriores.
 
+A previsão operacional por produto exige também revisão explícita do vínculo
+histórico. Associações legadas pendentes ou suspeitas não habilitam alertas
+preventivos silenciosamente. A consulta por código histórico continua disponível
+para inspeção, sem alterar a publicação.
+
+### Catalogação histórica
+
+A rota `/catalogacao` separa os códigos do histórico do catálogo operacional.
+Ela identifica códigos sem associação, vínculos pendentes, possíveis
+inconsistências e revisões realizadas pelo operador. Diferenças de categoria
+são indícios para conferência humana, não prova de que um vínculo está errado.
+
+Um código livre pode ser associado a um produto existente ou originar um novo
+cadastro com os dados comerciais informados. Nome, categoria, sabor, preço,
+estoque inicial e mínimo são obrigatórios; a ativação é explícita. Não são
+inventados dados, criados produtos ativos em lote ou deduzidos códigos a partir
+dos IDs internos. Os zeros à esquerda são preservados.
+
+Revisar, associar, alterar, desassociar e reverter vínculos exige confirmação,
+identificação do operador e motivo. A auditoria mantém os estados anterior e
+posterior. A reversão trata somente vínculo e revisão: não apaga produtos,
+vendas, histórico, saldos ou movimentações iniciais. Consulte
+[o guia desta rodada](docs/NOVA_VALIDACAO_CATALOGACAO.md) para regras,
+transações, migração e pendências comerciais.
+
 ### Previsões de demanda
 
 A rota `/previsoes` apresenta a publicação do Agente de Previsão, com visão
@@ -536,13 +566,19 @@ geral ou código histórico, filtros de período, agrupamentos diário/semanal/m
 gráfico e tabela. Modelos e métricas são exibidos por produto com seus baselines.
 Códigos sem associação ao catálogo continuam disponíveis para consulta.
 Um código associado mostra o nome do catálogo; um código sem descrição informa
-essa ausência e identifica a categoria separadamente. Nenhum vínculo é inferido.
+essa ausência e identifica a categoria separadamente. A situação de revisão do
+vínculo permite distinguir inspeção histórica de uso no estoque. Nenhum vínculo
+é inferido.
 
 Cada período exibido usa arredondamento HALF_UP: fração igual ou superior a 0,5
 sobe para o inteiro seguinte. Gráfico e tabela usam os mesmos inteiros, e o total
 é a soma das linhas. O total pode diferir do arredondamento direto da soma decimal,
 de outro agrupamento ou da soma de produtos arredondados separadamente. Previsões
 publicadas, métricas e avaliação de risco continuam usando os valores originais.
+
+Até sete períodos diários, o gráfico exibe todas as datas e os valores inteiros
+de cada ponto. Em intervalos maiores, os rótulos numéricos se adaptam à largura,
+preservando todos os pontos e os valores individuais na interação e na tabela.
 
 O botão de atualização solicita uma tarefa por SPADE/XMPP e acompanha seu
 estado, preservando a publicação anterior durante o trabalho. O recálculo exige
@@ -654,14 +690,21 @@ python -m pip install -r requirements.txt
 python create_db.py
 ```
 
-### 5. Inserir dados iniciais
+### 5. Dados de demonstração opcionais
 
 ```bash
-python seed.py
+python seed.py --demo
 ```
 
-Em um banco já utilizado, esse comando redefine os saldos dos produtos iniciais.
-Não é necessário repeti-lo a cada inicialização.
+Esse comando prepara somente `data/artifacts/demonstracao.db`, separado do banco
+operacional. Não redefine preços, saldos ou status existentes e não semeia nada
+ao importar o módulo. Executar sem `--demo` é recusado. O fluxo usa um marcador
+privado e identifica explicitamente seus produtos fictícios. Origem de produtos
+legados não é inferida por nome ou ID. Para abrir esse ambiente e conhecer as
+proteções, consulte [DEMONSTRACAO.md](docs/DEMONSTRACAO.md).
+
+O banco operacional não depende do seed. Cadastros históricos exigem o fluxo
+administrativo de catalogação e dados comerciais confirmados.
 
 ### 6. Configurar senhas e rodar aplicação
 
@@ -838,6 +881,9 @@ Funcionalidades já implementadas:
 - entrada, saída e ajuste pelo saldo final, com histórico auditável;
 - cadastro e controle manual de matérias-primas;
 - quantidade inicial opcional de matéria-prima, com entrada auditável na mesma transação;
+- controles de uma unidade que preservam as frações das matérias-primas;
+- catalogação histórica explícita, com revisão de vínculos e auditoria reversível;
+- banco de demonstração separado, com identificação dos produtos fictícios;
 - mínimos configuráveis e alertas para saldo igual ou inferior ao mínimo;
 - consulta e confirmação Atendimento → Estoque por XMPP real;
 - consulta Estoque → Previsão por XMPP, por produto associado ou visão geral;
@@ -864,14 +910,16 @@ Funcionalidades já implementadas:
 - Treinamento periódico não está ativado; a reconciliação dos alertas usa a
   execução de previsão disponível. O recálculo exige revisão histórica aprovada.
 - A avaliação de risco por produto do estoque exige associação explícita por
-  código externo. A tela de previsões permite consultar códigos sem essa associação.
+  código externo e revisão válida do operador. A tela de previsões permite
+  inspecionar códigos sem essa associação ou ainda pendentes de revisão.
 - Ainda não há autenticação de usuários.
 - Matérias-primas têm controle manual; abatimento por venda depende de receitas/BOM.
 - Um pedido com múltiplos produtos gera múltiplos registros na tabela `vendas`.
 - A interpretação de linguagem natural ainda é limitada a frases simples.
 - Descrições históricas completas dependem de informação explícita; grupo ou
-  categoria não substituem o nome do produto. Um cadastro descritivo separado
-  permanece como proposta, sem novas associações ou produtos automáticos.
+  categoria não substituem o nome do produto. Códigos sem dados comerciais
+  suficientes ficam pendentes de catalogação. A origem dos produtos legados
+  também exige revisão humana: ausência da marca de demo não prova origem real.
 - A avaliação histórica compara erros em recortes temporais específicos; não
   demonstra significância estatística nem melhoria da operação da fábrica.
 

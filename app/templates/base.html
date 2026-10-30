@@ -25,6 +25,7 @@
         <a href="{{ url_for('venda.simulacao_venda') }}"{% if request.endpoint == 'venda.simulacao_venda' %} aria-current="page"{% endif %}>Atendimento</a>
         <a href="{{ url_for('estoque.tela_estoque') }}"{% if request.endpoint == 'estoque.tela_estoque' %} aria-current="page"{% endif %}>Estoque</a>
         <a href="{{ url_for('previsao.tela_previsoes') }}"{% if request.endpoint == 'previsao.tela_previsoes' %} aria-current="page"{% endif %}>Previsões</a>
+        <a href="{{ url_for('catalogacao.tela_catalogacao') }}"{% if request.endpoint == 'catalogacao.tela_catalogacao' %} aria-current="page"{% endif %}>Catalogação</a>
         <a href="{{ url_for('venda.tela_vendas') }}"{% if request.endpoint == 'venda.tela_vendas' %} aria-current="page"{% endif %}>Vendas</a>
         <details id="estoque-notificacoes" class="stock-notifications" data-api="{{ url_for('estoque.alertas_api') }}">
             <summary aria-label="Consultar alertas de estoque">Alertas <span id="notificacoes-contagem" class="stock-alert-count" aria-hidden="true">…</span></summary>
@@ -37,6 +38,10 @@
         </details>
     </nav>
 </header>
+
+{% if config.get('TCC_DEMO_MODE') %}
+<p class="environment-banner" role="status">Ambiente de demonstração — dados fictícios em banco separado. Estes saldos não representam a operação real.</p>
+{% endif %}
 
 {% block content %}
 {% endblock %}

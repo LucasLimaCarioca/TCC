@@ -107,13 +107,21 @@ function harness({storage = new Storage(), storageUnavailable = false, response 
     minimum.required = true;
     elements.set("materia-minimo", minimum);
     const initial = material.elements.quantidade_inicial;
-    const stepper = new Element();
-    const minus = new Element("button");
-    minus.dataset.step = "-1";
-    const plus = new Element("button");
-    plus.dataset.step = "1";
-    stepper.querySelector = (selector) => selector === "input" ? minimum : null;
-    stepper.querySelectorAll = (selector) => selector === "[data-step]" ? [minus, plus] : [];
+    const steppers = new Map();
+    for (const [id, input] of [["materia-form", minimum],
+        ["movimentacao-form", elements.get("movimentacao-form").elements.quantidade],
+        ["minimo-form", elements.get("minimo-form").elements.estoque_minimo]]) {
+        input.required = true;
+        const control = new Element();
+        const minus = new Element("button");
+        minus.dataset.step = "-1";
+        const plus = new Element("button");
+        plus.dataset.step = "1";
+        control.querySelector = (selector) => selector === "input" ? input : null;
+        control.querySelectorAll = (selector) => selector === "[data-step]" ? [minus, plus] : [];
+        steppers.set(id, {control, input, minus, plus});
+    }
+    const {minus, plus} = steppers.get("materia-form");
     const calls = [];
     const requests = [];
     let reloads = 0;
@@ -133,8 +141,8 @@ function harness({storage = new Storage(), storageUnavailable = false, response 
     const context = {
         document: {
             getElementById: (id) => elements.get(id) || null,
-            querySelectorAll: (selector) => selector === "[data-decimal]" ? [minimum, initial]
-                : selector === "[data-decimal-stepper]" ? [stepper] : [],
+            querySelectorAll: (selector) => selector === "[data-decimal]" ? [...steppers.values()].map((item) => item.input).concat(initial)
+                : selector === "[data-decimal-stepper]" ? [...steppers.values()].map((item) => item.control) : [],
             createElement: (tag) => new Element(tag),
             createTextNode: (text) => { const node = new Element("#text"); node.textContent = text; return node; }
         },
@@ -151,7 +159,7 @@ function harness({storage = new Storage(), storageUnavailable = false, response 
     vm.runInNewContext(source, context, {filename: "estoque.js"});
     return {
         form: (id) => elements.get(id), output: (id) => elements.get(feedbackIds[id]),
-        get: (id) => elements.get(id), minimum, initial, minus, plus, calls, requests, storage,
+        get: (id) => elements.get(id), minimum, initial, minus, plus, steppers, calls, requests, storage,
         get reloads() { return reloads; },
         async submit(id) { await elements.get(id).listeners.submit(new Event("submit")); },
         setInput(input, value) { input.value = value; input.dispatchEvent(new Event("input", {bubbles: true})); },
@@ -336,7 +344,7 @@ test("movimentações de matéria-prima enviam decimais como texto", async () =>
     form.elements.item.value = "materia_prima:7";
     form.elements.quantidade.value = "1.123456789";
     form.listeners.change();
-    assert.equal(form.elements.quantidade.step, "0.000000001");
+    assert.equal(form.elements.quantidade.step, "1");
     await ui.submit(form.id);
     const body = JSON.parse(ui.calls[0].options.body);
     assert.equal(body.tipo_item, "materia_prima");
@@ -380,5 +388,75 @@ test("risco preventivo desconhecido mantém aviso local sem sinalizar sucesso pe
     assert.equal(output.getAttribute("role"), "status");
     assert.equal(ui.reloads, 0);
     assert.deepEqual(ui.storage.writes, []);
+});
+
+for (const [id, field] of [["movimentacao-form", "quantidade"], ["minimo-form", "estoque_minimo"]]) {
+    test(id + ": passo de uma unidade mantém frações e normaliza vírgula na requisição", async () => {
+        const ui = harness();
+        const form = ui.form(id);
+        form.elements.item.value = "materia_prima:7";
+        form.listeners.change();
+        const stepper = ui.steppers.get(id);
+        assert.equal(stepper.input.step, "1");
+        assert.equal(stepper.input.inputMode, "decimal");
+        ui.setInput(stepper.input, "1,500000001");
+        ui.click(stepper.plus);
+        assert.equal(stepper.input.value, "2.500000001");
+        ui.click(stepper.minus);
+        assert.equal(stepper.input.value, "1.500000001");
+        ui.setInput(stepper.input, "10,75");
+        ui.click(stepper.plus);
+        assert.equal(stepper.input.value, "11.75");
+        ui.click(stepper.minus);
+        assert.equal(stepper.input.value, "10.75");
+        ui.setInput(stepper.input, "0,5");
+        ui.click(stepper.minus);
+        assert.equal(stepper.input.value, "0");
+        ui.click(stepper.minus);
+        assert.equal(stepper.input.value, "0");
+        ui.setInput(stepper.input, "1,123456789");
+        await ui.submit(id);
+        assert.equal(JSON.parse(ui.calls[0].options.body)[field], "1.123456789");
+        assert.equal(stepper.input.value, "1,123456789");
+    });
+
+    test(id + ": produtos aceitam somente inteiros exatos e troca de item revalida o campo", async () => {
+        const ui = harness();
+        const form = ui.form(id);
+        const stepper = ui.steppers.get(id);
+        assert.equal(stepper.input.inputMode, "numeric");
+        for (const invalid of ["1.5", "1,5", "-1", "9007199254740992"]) {
+            ui.setInput(stepper.input, invalid);
+            ui.click(stepper.plus);
+            assert.equal(stepper.input.value, invalid);
+            assert.notEqual(stepper.input.validationMessage, "");
+            await ui.submit(id);
+        }
+        assert.equal(ui.calls.length, 0);
+        ui.setInput(stepper.input, "1");
+        ui.click(stepper.plus);
+        assert.equal(stepper.input.value, "2");
+        ui.click(stepper.minus);
+        assert.equal(stepper.input.value, "1");
+        await ui.submit(id);
+        assert.equal(JSON.parse(ui.calls[0].options.body)[field], 1);
+        form.elements.item.value = "materia_prima:7";
+        form.listeners.change();
+        ui.setInput(stepper.input, "1.5");
+        assert.equal(stepper.input.validationMessage, "");
+        form.elements.item.value = "produto:42";
+        form.listeners.change();
+        assert.notEqual(stepper.input.validationMessage, "");
+    });
+}
+
+test("stepper de produto não atravessa o limite de serialização inteira exata", () => {
+    const ui = harness();
+    const {input, plus, minus} = ui.steppers.get("movimentacao-form");
+    ui.setInput(input, "9007199254740991");
+    ui.click(plus);
+    assert.equal(input.value, "9007199254740991");
+    ui.click(minus);
+    assert.equal(input.value, "9007199254740990");
 });
 

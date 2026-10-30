@@ -22,6 +22,7 @@
             <button type="button" id="previsao-limpar" class="forecast-secondary">Limpar filtros</button>
         </form>
         <p class="forecast-help">A visão geral soma as previsões dos produtos com histórico elegível. Um produto sem previsão não representa demanda zero.</p>
+        <p class="forecast-help">O nome operacional indica o vínculo cadastrado. Confira sua identidade comercial em <a href="{{ url_for('catalogacao.tela_catalogacao') }}">Catalogação</a>: vínculos pendentes não habilitam avaliações de risco por produto. As previsões por código histórico continuam disponíveis.</p>
         <p id="previsao-status" role="status" aria-live="polite">Carregando a previsão publicada…</p>
         <p id="previsao-erro" class="forecast-notice forecast-danger" role="alert" hidden></p>
         <p id="previsao-anterior" class="forecast-notice" hidden>O painel mantém a consulta anterior enquanto a nova consulta é carregada.</p>
@@ -43,7 +44,8 @@
             <div class="forecast-chart-wrap" role="region" aria-label="Gráfico da demanda prevista" tabindex="0">
                 <svg id="previsao-grafico" viewBox="0 0 900 290" role="img" aria-labelledby="previsao-grafico-titulo previsao-grafico-descricao"></svg>
             </div>
-            <p id="previsao-grafico-descricao" class="forecast-help">O gráfico e a tabela mostram as mesmas estimativas arredondadas. Em telas pequenas, deslize o gráfico horizontalmente para consultar todas as datas.</p>
+            <p id="previsao-grafico-descricao" class="forecast-help">O gráfico e a tabela mostram as mesmas estimativas arredondadas. Até sete dias, cada ponto exibe seu valor. Em séries maiores, alguns valores aparecem para evitar sobreposição; passe sobre um ponto ou use Tab para consultar qualquer valor. Em telas pequenas, deslize o gráfico horizontalmente para consultar todas as datas.</p>
+            <p id="previsao-ponto-detalhe" class="forecast-help" role="status" aria-live="polite" aria-atomic="true"></p>
         </figure>
         <div class="stock-table-wrap forecast-table-wrap" role="region" aria-label="Tabela da demanda prevista" tabindex="0">
             <table class="data-table forecast-table">

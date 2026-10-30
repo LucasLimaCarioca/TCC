@@ -13,3 +13,4 @@ from app.models.previsao_demanda import PrevisaoDemanda
 from app.models.previsao_execucao import PrevisaoExecucao
 from app.models.log_mensagem_agente import LogMensagemAgente
 from app.models.operacao_estoque import OperacaoEstoque
+from app.models.catalogacao_historica import RevisaoAssociacaoHistorica, OperacaoCatalogacao

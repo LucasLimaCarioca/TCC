@@ -63,7 +63,7 @@ def test_banco_vazio_cria_schema_equivalente_aos_modelos(migration_project):
     root, _, app = migration_project
     with app.app_context():
         result = upgrade_database(project_root=root)
-        assert result == {"updated": True, "revision": "0008_alertas_preventivos", "backup": None}
+        assert result == {"updated": True, "revision": "0009_catalogacao_historica", "backup": None}
         with db.engine.connect() as connection:
             assert compare_metadata(MigrationContext.configure(connection), db.metadata) == []
             assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
@@ -85,7 +85,7 @@ def test_migracao_preserva_todos_registros_do_baseline_e_backup(migration_projec
         for table, records in before.items():
             if table == "produtos":
                 assert [row[:8] for row in after[table]] == records
-                assert after[table][0][8:] == (None, 0)
+                assert after[table][0][8:] == (None, 0, 0)
             elif table == "contextos_conversa":
                 assert [row[:-1] for row in after[table]] == records
                 assert all(row[-1] is None for row in after[table])
@@ -163,7 +163,7 @@ def test_cli_upgrade_current_e_create_db_compativeis(migration_project, monkeypa
     assert result.exit_code == 0, result.output
     result = app.test_cli_runner().invoke(args=["db", "current"])
     assert result.exit_code == 0
-    assert "0008_alertas_preventivos" in result.output
+    assert "0009_catalogacao_historica" in result.output
     monkeypatch.setattr("app.app.create_app", lambda: app)
     with pytest.raises(SystemExit) as result:
         runpy.run_path(str(ROOT / "create_db.py"), run_name="__main__")
@@ -194,6 +194,9 @@ def test_novo_check_preserva_movimentacoes_indices_e_referencias(migration_proje
                 if table in {"contextos_conversa", "movimentacoes_estoque"}:
                     assert [row[:-1] for row in after[table]] == before[table]
                     assert all(row[-1] is None for row in after[table])
+                elif table == "produtos":
+                    assert [row[:-1] for row in after[table]] == before[table]
+                    assert all(row[-1] == 0 for row in after[table])
                 else:
                     assert after[table] == before[table]
         assert after["operacoes_estoque"] == []
@@ -241,8 +244,10 @@ def test_check_saldo_preserva_tabela_pai_e_todas_referencias(migration_project, 
         after = snapshot(path)
         comparable = {k: ([row[:-1] for row in v] if k in {"contextos_conversa", "movimentacoes_estoque"}
                           else [row[:-5] for row in v] if k == "previsoes_demanda"
+                          else [row[:-1] for row in v] if k == "produtos"
                           else [row[:-2] for row in v] if k == "alertas_estoque" else v)
-                      for k, v in after.items() if k not in {"alembic_version", "operacoes_estoque", "previsoes_execucoes"}}
+                      for k, v in after.items() if k not in {"alembic_version", "operacoes_estoque", "previsoes_execucoes",
+                                                           "revisoes_associacoes_historicas", "operacoes_catalogacao"}}
         assert comparable == {
             k: v for k, v in before.items() if k != "alembic_version"
         }
@@ -305,11 +310,14 @@ def test_integridade_operacoes_migra_0005_preservando_recibos_e_auditoria(migrat
     before = snapshot(path)
     with app.app_context():
         result = upgrade_database(project_root=root)
-        assert result["revision"] == "0008_alertas_preventivos"
+        assert result["revision"] == "0009_catalogacao_historica"
         assert snapshot(result["backup"]) == before
         after = snapshot(path)
-        assert {k: v for k, v in after.items() if k not in {"alembic_version", "previsoes_execucoes"}} == {
+        new_tables = {"alembic_version", "previsoes_execucoes", "revisoes_associacoes_historicas", "operacoes_catalogacao"}
+        assert {k: [row[:-1] for row in v] if k == "produtos" else v
+                for k, v in after.items() if k not in new_tables} == {
             k: v for k, v in before.items() if k != "alembic_version"}
+        assert all(row[-1] == 0 for row in after["produtos"])
         assert after["previsoes_execucoes"] == []
         with db.engine.connect() as connection:
             checks = {c["name"] for c in sa.inspect(connection).get_check_constraints("operacoes_estoque")}
@@ -342,16 +350,19 @@ def test_migracao_0007_preserva_previsao_legada_e_todos_os_outros_registros(migr
     before = snapshot(path)
     with app.app_context():
         result = upgrade_database(project_root=root)
-        assert result["revision"] == "0008_alertas_preventivos"
+        assert result["revision"] == "0009_catalogacao_historica"
         assert snapshot(result["backup"]) == before
         after = snapshot(path)
-        assert set(after) == set(before) | {"previsoes_execucoes"}
+        assert set(after) == set(before) | {"previsoes_execucoes", "revisoes_associacoes_historicas", "operacoes_catalogacao"}
         for table, records in before.items():
             if table == "alembic_version":
-                assert after[table] == [("0008_alertas_preventivos",)]
+                assert after[table] == [("0009_catalogacao_historica",)]
             elif table == "previsoes_demanda":
                 assert [row[:-5] for row in after[table]] == records
                 assert all(row[-5:] == (None,) * 5 for row in after[table])
+            elif table == "produtos":
+                assert [row[:-1] for row in after[table]] == records
+                assert all(row[-1] == 0 for row in after[table])
             else:
                 assert after[table] == records
         assert after["previsoes_execucoes"] == []
@@ -401,13 +412,16 @@ def test_migracao_0008_preserva_alertas_legados_sem_inventar_snapshot(migration_
     before = snapshot(path)
     with app.app_context():
         result = upgrade_database(project_root=root)
-        assert result["revision"] == "0008_alertas_preventivos"
+        assert result["revision"] == "0009_catalogacao_historica"
         assert snapshot(result["backup"]) == before
         assert result["backup"].stat().st_mode & 0o777 == 0o600
         after = snapshot(path)
         for table, records in before.items():
             if table == "alembic_version":
-                assert after[table] == [("0008_alertas_preventivos",)]
+                assert after[table] == [("0009_catalogacao_historica",)]
+            elif table == "produtos":
+                assert [row[:-1] for row in after[table]] == records
+                assert all(row[-1] == 0 for row in after[table])
             elif table == "alertas_estoque":
                 assert [row[:-2] for row in after[table]] == records
                 assert all(row[-2:] == (None, None) for row in after[table])

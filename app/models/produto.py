@@ -21,6 +21,9 @@ class Produto(db.Model):
 
     # NULL mantém produtos legados sem inventar uma associação ao histórico.
     codigo_externo = db.Column(db.String(64), unique=True, index=True)
+    # Somente o ambiente separado de demonstração marca os próprios cadastros.
+    # False em legados não autoriza inferir origem real por nome ou ID.
+    demonstracao = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
     estoque_minimo = db.Column(
         db.Integer,
         db.CheckConstraint("estoque_minimo >= 0", name="ck_produto_minimo"),

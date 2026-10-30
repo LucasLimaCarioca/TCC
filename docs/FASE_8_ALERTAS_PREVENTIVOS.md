@@ -108,6 +108,16 @@ O retorno informa indisponibilidade com `risco=null` ou um erro tratado, como
 `FORECAST_STALE`. O sistema preserva alertas anteriores e informa a pendência.
 Falha de previsão não é demanda zero e não serve para resolver um alerta.
 
+A nova catalogação acrescenta uma condição de identidade: o vínculo entre o
+produto operacional e o código histórico precisa ter revisão explícita válida.
+Associações legadas ou suspeitas continuam pendentes até confirmação do
+operador. Não basta o código coincidir numericamente com um ID interno. Uma
+revisão inválida impede o uso operacional da previsão e mantém avaliações
+anteriores pendentes, sem apagar alertas ou republicar artefatos. A condição é
+conferida também na persistência para rejeitar respostas anteriores a mudanças
+do vínculo. O painel histórico por código continua consultável para inspeção.
+Consulte [a nova validação de catalogação](NOVA_VALIDACAO_CATALOGACAO.md).
+
 A tela distingue **Estoque mínimo** e **Risco futuro**. Quando a avaliação
 registrada não é atual, apresenta **Avaliação pendente** e seu motivo. A tela
 não exibe identificadores técnicos de execução ou hashes no fluxo do usuário.

@@ -9,6 +9,8 @@
         <div class="section-header">
             <h1>Controle de Estoque</h1>
             <p>Produtos acabados, matérias-primas, movimentações e alertas de estoque.</p>
+            <p>Produtos existentes somente no histórico devem ser conferidos em <a href="{{ url_for('catalogacao.tela_catalogacao') }}">Catalogação</a>. Nenhum cadastro de estoque é criado automaticamente.</p>
+            <p>Cadastros sem marca de demonstração não comprovam origem real. Produtos legados devem ter sua origem e identidade comercial conferidas pelo operador.</p>
         </div>
 
         <div class="stock-table-wrap">
@@ -24,6 +26,7 @@
                     <th>Disponivel</th>
                     <th>Mínimo</th>
                     <th>Status</th>
+                    <th>Origem</th>
                     <th>Estoque</th>
                 </tr>
             </thead>
@@ -39,6 +42,7 @@
                         <td>{{ produto.quantidade_disponivel }}</td>
                         <td>{{ produto.estoque_minimo }}</td>
                         <td>{% if produto.ativo %}Ativo{% else %}Inativo{% endif %}</td>
+                        <td>{% if produto.demonstracao %}<strong class="demo-badge">Demonstração</strong>{% else %}Cadastro operacional / origem não classificada{% endif %}</td>
                         <td>
                             {% if produto.quantidade_disponivel <= produto.estoque_minimo %}
                                 Baixo
@@ -105,16 +109,31 @@
         <form id="movimentacao-form" class="stock-form">
             {{ selecionar_item() }}
             <label>Operação <select name="tipo_movimentacao"><option value="entrada">Entrada</option><option value="saida">Saída</option><option value="ajuste">Ajuste do saldo final</option></select></label>
-            <label><span id="quantidade-label">Quantidade da movimentação</span> <input name="quantidade" type="number" min="0" step="1" required></label>
+            <div class="stock-field">
+                <label id="quantidade-label" for="movimentacao-quantidade">Quantidade da movimentação</label>
+                <div class="decimal-stepper" data-decimal-stepper>
+                    <button type="button" data-step="-1" aria-label="Diminuir quantidade em uma unidade">−</button>
+                    <input id="movimentacao-quantidade" name="quantidade" type="text" inputmode="numeric" pattern="[0-9]+" maxlength="35" aria-describedby="movimentacao-precisao" data-decimal required>
+                    <button type="button" data-step="1" aria-label="Aumentar quantidade em uma unidade">+</button>
+                </div>
+            </div>
             <label>Motivo <input name="motivo" maxlength="500" required></label>
-            <p>No ajuste, informe o saldo final desejado. Produtos usam unidades inteiras; matérias-primas usam a unidade cadastrada.</p>
+            <p id="movimentacao-precisao">No ajuste, informe o saldo final desejado. Produtos usam unidades inteiras; matérias-primas aceitam ponto ou vírgula e até nove casas decimais na unidade cadastrada. Os botões alteram uma unidade e respeitam zero.</p>
             <button type="submit">Registrar movimentação</button>
             <p id="movimentacao-feedback" class="stock-form-feedback" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" hidden></p>
         </form>
         <form id="minimo-form" class="stock-form">
             <h3>Configurar estoque mínimo</h3>
             {{ selecionar_item() }}
-            <label>Mínimo <input name="estoque_minimo" type="number" min="0" step="1" required></label>
+            <div class="stock-field">
+                <label for="configurar-minimo">Mínimo</label>
+                <div class="decimal-stepper" data-decimal-stepper>
+                    <button type="button" data-step="-1" aria-label="Diminuir mínimo em uma unidade">−</button>
+                    <input id="configurar-minimo" name="estoque_minimo" type="text" inputmode="numeric" pattern="[0-9]+" maxlength="35" aria-describedby="minimo-precisao" data-decimal required>
+                    <button type="button" data-step="1" aria-label="Aumentar mínimo em uma unidade">+</button>
+                </div>
+            </div>
+            <p id="minimo-precisao">Produtos usam unidades inteiras; matérias-primas aceitam ponto ou vírgula e até nove casas decimais. Os botões alteram uma unidade e respeitam zero.</p>
             <button type="submit">Salvar mínimo</button>
             <p id="minimo-feedback" class="stock-form-feedback" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" hidden></p>
         </form>

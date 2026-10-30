@@ -112,6 +112,27 @@ def test_quantidade_inicial_e_opcional_com_zero_e_mesma_precisao(stock_document)
     assert "Quantidade inicial vazia significa zero" in document.by_id(attrs["aria-describedby"])["text"]
 
 
+@pytest.mark.parametrize("form_id,input_id,name", [
+    ("movimentacao-form", "movimentacao-quantidade", "quantidade"),
+    ("minimo-form", "configurar-minimo", "estoque_minimo"),
+])
+def test_movimentacao_e_minimo_compartilham_controles_de_uma_unidade(stock_document, form_id, input_id, name):
+    document = stock_document
+    form = document.by_id(form_id)
+    field = document.by_id(input_id)
+    attrs = field["attrs"]
+    assert any(ancestor is form for ancestor in field["ancestors"])
+    assert attrs["name"] == name and attrs["type"] == "text"
+    assert attrs["inputmode"] == "numeric" and attrs["pattern"] == "[0-9]+"
+    assert "data-decimal" in attrs and "required" in attrs
+    stepper = next(ancestor for ancestor in field["ancestors"] if "data-decimal-stepper" in ancestor["attrs"])
+    buttons = [node for node in document.descendants(stepper) if node["tag"] == "button"]
+    assert {button["attrs"].get("data-step") for button in buttons} == {"-1", "1"}
+    assert all(button["attrs"].get("type") == "button" and button["attrs"].get("aria-label") for button in buttons)
+    help_text = document.by_id(attrs["aria-describedby"])["text"]
+    assert "ponto ou vírgula" in help_text and "nove casas decimais" in help_text
+
+
 def test_alerta_persistente_exibe_apenas_horizonte_oficial_consulta_aceita_personalizado(stock_document):
     document = stock_document
     persistent = document.by_id("preventivo-form")

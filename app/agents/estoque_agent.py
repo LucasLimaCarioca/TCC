@@ -89,7 +89,8 @@ class EstoqueAgent(BaseAgent):
         if not self.is_alive() or not self.client.is_connected():
             raise AgentUnavailable("Agente de estoque desconectado.")
         if command not in {"visao_estoque", "sincronizar_alertas", "movimentar", "configurar_minimo",
-                            "cadastrar_materia_prima", "consultar_disponibilidade", "consultar_produto", "registrar_venda"}:
+                            "cadastrar_materia_prima", "consultar_disponibilidade", "consultar_produto", "registrar_venda",
+                            "catalogar_historico", "conferir_associacao"}:
             raise EstoqueError("INVALID_INPUT", "Operação de estoque inválida.")
 
         def execute():
@@ -101,6 +102,8 @@ class EstoqueAgent(BaseAgent):
             self.agendar_alertas({item["produto_id"] for item in kwargs["itens"]})
         elif command in {"movimentar", "configurar_minimo"} and kwargs.get("tipo_item") == "produto":
             self.agendar_alertas({kwargs["item_id"]})
+        elif command == "catalogar_historico":
+            self.agendar_alertas(set(result["produto_ids"]))
         return result
 
     async def handle_request(self, sender, envelope):
@@ -148,6 +151,12 @@ class EstoqueAgent(BaseAgent):
         # A comunicação pode ter coincidido com uma venda ou reposição.
         product = await self.executar("consultar_produto", produto_id=produto_id)
         stock = product["disponivel"]
+        association = await self.executar("conferir_associacao", produto_id=produto_id,
+                                         codigo_produto=forecast.payload["codigo_produto"])
+        if not association["confirmada"]:
+            return {**product, "status": "associacao_pendente", "risco": None,
+                    "code": "MAPPING_REVIEW_REQUIRED",
+                    "mensagem": "Confira o vínculo em Catalogação antes de usar a previsão para este produto."}
         with localcontext() as context:
             context.prec = 128
             projected = Decimal(str(stock)) - Decimal(forecast.payload["total_previsto"])

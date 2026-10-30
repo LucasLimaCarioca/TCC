@@ -122,6 +122,10 @@ def sincronizar_alerta_preventivo(produto_id, previsao, horizonte_dias=None, *, 
                 if not product.codigo_externo:
                     raise EstoqueError("PRODUCT_UNMAPPED", "O produto não possui código externo associado ao histórico.")
                 _confirmar_execucao(session, product, payload, horizon)
+                from app.services.catalogacao_service import associacao_revisada
+                if not associacao_revisada(session, product):
+                    raise EstoqueError("MAPPING_REVIEW_REQUIRED",
+                        "O vínculo histórico exige revisão explícita em Catalogação; os alertas anteriores foram preservados.")
                 with localcontext() as context:
                     context.prec = 450
                     demand = sum((Decimal(period["quantidade_prevista"]) for period in payload["periodos"]), Decimal(0))
@@ -172,13 +176,15 @@ def sincronizar_alerta_preventivo(produto_id, previsao, horizonte_dias=None, *, 
         raise EstoqueError("STORAGE_ERROR", "Não foi possível registrar a avaliação preventiva de estoque.") from None
 
 
-def estado_alerta_preventivo(alerta, produto, execucao_ativa_id, *, hoje=None):
+def estado_alerta_preventivo(alerta, produto, execucao_ativa_id, *, hoje=None, associacao_confirmada=True):
     """Informa a validade do alerta sem consultar ou alterar o banco de dados."""
     def state(reason):
         return {"atual": reason == "atual", "motivo": reason}
 
     if not alerta.ativo:
         return state("resolvido")
+    if not associacao_confirmada:
+        return state("associacao_pendente_revisao")
     snapshot = alerta.previsao_json
     if snapshot is None:
         return state("legado_sem_previsao")

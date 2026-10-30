@@ -32,11 +32,15 @@ def load_command(manifest):
 @forecast_commands.command("associar-produto")
 @click.option("--produto-id", type=click.IntRange(min=1), required=True)
 @click.option("--codigo-externo", required=True, help="Código textual confirmado, preservando zeros à esquerda.")
+@click.option("--confirmar", is_flag=True, help="Confirma a identidade comercial e a associação após conferência.")
+@click.option("--operador", required=True, help="Responsável pela conferência comercial.")
+@click.option("--motivo", required=True, help="Motivo e referência da conferência.")
 @with_appcontext
-def map_command(produto_id, codigo_externo):
-    """Registra uma associação fornecida pelo operador, sem inferir por nome."""
+def map_command(produto_id, codigo_externo, confirmar, operador, motivo):
+    """Registra uma associação confirmada, com revisão e auditoria reversível."""
     try:
-        PrevisaoService(current_app._get_current_object()).associar_produto(produto_id, codigo_externo)
+        PrevisaoService(current_app._get_current_object()).associar_produto(produto_id, codigo_externo,
+            confirmar=confirmar, operador=operador, motivo=motivo)
     except PrevisaoError as error:
         raise click.ClickException(f"{error.code}: {error}") from None
     click.echo("Associação explícita registrada localmente.")

@@ -339,6 +339,12 @@ def test_decimal_exato_sem_arredondar_saldo_projetado(ready):
             result["forecast"]["overall"] = deepcopy(result["forecast"]["products"]["00110"])
         active.resultado_json = result
         db.session.commit()
+        # O cenário modifica deliberadamente a publicação fictícia no banco;
+        # confirma também a identidade no novo estado antes de isolar a precisão.
+        from app.services.catalogacao_service import _historico, _review
+        _review(db.session, db.session.get(Produto, product), _historico(db.session),
+                "Operador fictício", "Conferência do cenário decimal fictício.")
+        db.session.commit()
         payload = deepcopy(payload)
         payload["periodos"] = result["forecast"]["products"]["00110"]["diaria"][:7]
         payload["total_previsto"] = "2.333333331"

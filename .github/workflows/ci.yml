@@ -44,6 +44,7 @@ jobs:
           node --check app/static/js/estoque.js
           node --check app/static/js/previsoes.js
           node --check app/static/js/notificacoes_estoque.js
+          node --check app/static/js/catalogacao.js
 
       - name: Testar interfaces JavaScript
         run: node --test tests/js/*.test.cjs

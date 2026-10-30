@@ -117,6 +117,11 @@ function ticks(ui) {
         .filter((item) => (item.getAttribute("class") || "").split(" ").includes("forecast-chart-x-label"));
 }
 
+function valueLabels(ui) {
+    return descendants(ui.get("previsao-grafico"), "text")
+        .filter((item) => (item.getAttribute("class") || "").split(" ").includes("forecast-chart-value-label"));
+}
+
 async function settle() {
     await new Promise(setImmediate);
     await new Promise(setImmediate);
@@ -253,6 +258,55 @@ test("sete dias em tela estreita não sobrepõem datas e mantêm área horizonta
     assert.equal(ui.get("previsao-grafico").getAttribute("viewBox"), "0 0 571 290");
 });
 
+test("sete dias mostram sete valores inteiros iguais à tabela, inclusive zero e empates", async () => {
+    const data = deepFreeze(payload(["0", "0.4", "0.5", "1.5", "1.5", "10.75", "10.75"]));
+    const before = JSON.stringify(data);
+    const ui = await harness(data, {width: 320});
+    const labels = valueLabels(ui);
+    const rows = ui.get("previsao-periodos").children;
+    assert.equal(ticks(ui).length, 7);
+    assert.equal(labels.length, 7);
+    assert.deepEqual(labels.map((item) => item.ownText), rows.map((row) => row.children[2].textContent));
+    assert.deepEqual(labels.map((item) => item.ownText), ["0", "0", "1", "2", "2", "11", "11"]);
+    const dateY = Number(ticks(ui)[0].getAttribute("y"));
+    assert.ok(labels.every((item) => Number(item.getAttribute("y")) <= dateY - 30));
+    assert.equal(JSON.stringify(data), before);
+});
+
+test("série nula mantém valores visíveis acima do eixo e pontos focalizáveis", async () => {
+    const ui = await harness(payload(Array(7).fill("0")), {width: 320});
+    const points = descendants(ui.get("previsao-grafico"), "circle");
+    assert.equal(points.length, 7);
+    assert.equal(valueLabels(ui).length, 7);
+    assert.ok(valueLabels(ui).every((label) => label.ownText === "0" && Number(label.getAttribute("y")) > 0));
+    assert.ok(points.every((point) => point.getAttribute("tabindex") === "0" && point.getAttribute("aria-label").includes(": 0 unidades")));
+    points[3].listeners.focus();
+    assert.match(ui.get("previsao-ponto-detalhe").textContent, /04\/01\/2030: 0 unidades/);
+    points[3].listeners.blur();
+    assert.match(ui.get("previsao-ponto-detalhe").textContent, /Tab/);
+    points[4].listeners.click(); // Toque mantém o valor consultado após retirar o dedo.
+    points[4].listeners.pointerleave();
+    assert.match(ui.get("previsao-ponto-detalhe").textContent, /05\/01\/2030: 0 unidades/);
+    let prevented = false;
+    points[5].listeners.keydown({key: "Enter", preventDefault() { prevented = true; }});
+    assert.equal(prevented, true);
+    assert.match(ui.get("previsao-ponto-detalhe").textContent, /06\/01\/2030: 0 unidades/);
+});
+
+test("valores grandes têm espaço horizontal para os sete rótulos sem truncamento", async () => {
+    const ui = await harness(payload(Array(7).fill("12345678901234567890.5")), {width: 320});
+    const labels = valueLabels(ui);
+    assert.equal(labels.length, 7);
+    const canvas = Number(ui.get("previsao-grafico").getAttribute("viewBox").split(" ")[2]);
+    const boxes = labels.map((item) => {
+        const half = item.ownText.length * 9 / 2;
+        const x = Number(item.getAttribute("x"));
+        return {left: x - half, right: x + half};
+    });
+    assert.ok(boxes[0].left >= 12 && boxes.at(-1).right <= canvas - 12);
+    assert.ok(boxes.slice(1).every((box, index) => box.left >= boxes[index].right + 24));
+});
+
 test("intervalos maiores espaçam datas conforme largura e preservam todas as linhas", async () => {
     const ui = await harness(payload(Array(31).fill("0.5")), {width: 1000});
     const desktopCount = ticks(ui).length;
@@ -267,6 +321,31 @@ test("intervalos maiores espaçam datas conforme largura e preservam todas as li
     assert.equal(mobile.at(-1).ownText, "31/01");
     assert.equal(ui.get("previsao-periodos").children.length, 31);
     assert.equal(ui.calls.length, 1); // Redesenhar não consulta nem altera previsões.
+});
+
+test("séries longas reduzem rótulos conforme largura e mantêm cada ponto acessível", async () => {
+    const ui = await harness(payload(Array.from({length: 90}, (_, index) => index % 3 ? "10.5" : "0")), {width: 1000});
+    const desktop = valueLabels(ui).length;
+    assert.ok(desktop > 3 && desktop < 90);
+    ui.wrapper.clientWidth = 320;
+    ui.windowEvents.resize();
+    const labels = valueLabels(ui);
+    assert.ok(labels.length > 0 && labels.length < desktop);
+    const boxes = labels.map((item) => {
+        const x = Number(item.getAttribute("x")), half = item.ownText.length * 9 / 2;
+        return {left: x - half, right: x + half};
+    });
+    assert.ok(boxes.slice(1).every((box, index) => box.left >= boxes[index].right + 24));
+    const points = descendants(ui.get("previsao-grafico"), "circle");
+    const curve = descendants(ui.get("previsao-grafico"), "polyline")[0];
+    assert.equal(points.length, 90);
+    assert.equal(curve.getAttribute("points").split(" ").length, 90);
+    assert.equal(ui.get("previsao-periodos").children.length, 90);
+    points[88].listeners.pointerenter();
+    assert.match(ui.get("previsao-ponto-detalhe").textContent, /30\/03\/2030: 11 unidades/);
+    assert.match(points[88].getAttribute("aria-label"), /30\/03\/2030: 11 unidades/);
+    assert.ok(labels.every((item) => Number(item.getAttribute("y")) < Number(ticks(ui)[0].getAttribute("y")) - 30));
+    assert.equal(ui.calls.length, 1);
 });
 
 test("intervalo que cruza o ano mantém ano completo nas datas do gráfico", async () => {

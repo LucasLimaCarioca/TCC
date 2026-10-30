@@ -11,7 +11,6 @@ import re
 from threading import Event
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.database import db
@@ -201,6 +200,14 @@ class PrevisaoService:
             forecast = result["forecast"]["overall"] if code is None else result["forecast"]["products"].get(code)
             if forecast is None:
                 raise PrevisaoError("HISTORY_NOT_FOUND", "O produto não possui histórico elegível nesta execução.")
+            if produto_id is not None:
+                from app.services.catalogacao_service import associacao_revisada
+                with self.app.app_context(), Session(db.engine) as session:
+                    current_product = session.get(Produto, produto_id)
+                    if (current_product is None or current_product.codigo_externo != code
+                            or not associacao_revisada(session, current_product)):
+                        raise PrevisaoError("MAPPING_REVIEW_REQUIRED",
+                            "O vínculo histórico está pendente de revisão explícita em Catalogação.")
             if horizonte_dias > result["horizon_days"]:
                 raise PrevisaoError("HORIZON_UNAVAILABLE", "O horizonte solicitado excede a cobertura da previsão ativa.")
             daily = forecast["diaria"][:horizonte_dias]
@@ -254,8 +261,8 @@ class PrevisaoService:
         except Exception:
             raise PrevisaoError("UPDATE_FAILED", "Não foi possível concluir a atualização local da previsão.") from None
 
-    def associar_produto(self, produto_id, codigo_externo):
-        """Cadastra apenas o vínculo explícito fornecido pelo operador."""
+    def associar_produto(self, produto_id, codigo_externo, *, confirmar=False, operador=None, motivo=None):
+        """Compatibilidade da CLI: usa a mesma confirmação e auditoria do catálogo."""
         if (type(produto_id) is not int or produto_id <= 0 or type(codigo_externo) is not str
                 or not 1 <= len(codigo_externo) <= 64 or codigo_externo != codigo_externo.strip()
                 or any(ord(char) < 32 or ord(char) == 127 for char in codigo_externo)):
@@ -267,21 +274,22 @@ class PrevisaoService:
                     raise PrevisaoError("MODEL_UNAVAILABLE", "Ative uma execução revisada antes de associar produtos.")
                 if codigo_externo not in active["result"]["forecast"]["products"]:
                     raise PrevisaoError("HISTORY_NOT_FOUND", "O código informado não possui histórico elegível na execução ativa.")
-                with Session(db.engine) as session:
-                    try:
-                        session.execute(text("BEGIN IMMEDIATE"))
-                        product = session.get(Produto, produto_id)
-                        if product is None:
-                            raise PrevisaoError("PRODUCT_NOT_FOUND", "Produto não encontrado no catálogo.")
-                        other = session.scalar(select(Produto.id).where(Produto.codigo_externo == codigo_externo,
-                                                                      Produto.id != produto_id))
-                        if other is not None or product.codigo_externo not in (None, codigo_externo):
-                            raise PrevisaoError("MAPPING_CONFLICT", "Já existe uma associação diferente; revise o vínculo antes de alterá-lo.")
-                        product.codigo_externo = codigo_externo
-                        session.commit()
-                    except BaseException:
-                        session.rollback()
-                        raise
+                from app.services.catalogacao_service import listar_catalogacao, executar_catalogacao
+                from app.services.estoque_service import EstoqueError
+                listing = listar_catalogacao()
+                product = next((item for item in listing["produtos"] if item["id"] == produto_id), None)
+                entry = next(item for item in listing["codigos"] if item["codigo_produto"] == codigo_externo)
+                if product is None:
+                    raise PrevisaoError("PRODUCT_NOT_FOUND", "Produto não encontrado no catálogo.")
+                if (entry["produto_id"] not in (None, produto_id)
+                        or product["codigo_externo"] not in (None, codigo_externo)):
+                    raise PrevisaoError("MAPPING_CONFLICT", "Já existe uma associação diferente; revise o vínculo antes de alterá-lo.")
+                try:
+                    return executar_catalogacao(acao="revisar" if entry["produto_id"] == produto_id else "associar",
+                        codigo_produto=codigo_externo, produto_id=produto_id, versao=entry["versao"],
+                        versao_produto=product["versao"], confirmar=confirmar, operador=operador, motivo=motivo)
+                except EstoqueError as error:
+                    raise PrevisaoError(error.code, str(error)) from None
         except PrevisaoError:
             raise
         except Exception:

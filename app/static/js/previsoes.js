@@ -142,12 +142,20 @@
     function drawChart(periods, frequency, units) {
         const svg = byId("previsao-grafico");
         svg.replaceChildren();
+        const pointHelp = "Passe sobre um ponto ou navegue pelos pontos com Tab para consultar a data e a estimativa arredondada.";
+        text("previsao-ponto-detalhe", pointHelp);
         if (!periods.length) return;
         const sameYear = periods.every((period) => period.cobertura_inicio.slice(0, 4) === periods[0].cobertura_inicio.slice(0, 4));
-        const labelSpacing = sameYear ? 76 : 126;
+        // Margem conservadora por caractere: também acomoda inteiros grandes.
+        const valueWidth = (value) => quantity(value).length * 9;
+        const maximumValueWidth = Math.max(...units.map(valueWidth));
+        const numericSpacing = maximumValueWidth + 24;
+        const labelSpacing = Math.max(sameYear ? 76 : 126, numericSpacing);
         const allDailyDates = frequency === "diaria" && periods.length <= 7;
-        const left = 85, right = 30, top = 25, height = 205;
-        const minimumWidth = Math.max(360, allDailyDates ? left + right + (periods.length - 1) * labelSpacing : 360);
+        const left = Math.max(85, Math.ceil(maximumValueWidth / 2) + 12);
+        const right = Math.max(30, Math.ceil(maximumValueWidth / 2) + 12);
+        const top = 25, height = 205;
+        const minimumWidth = Math.max(360, left + right + (allDailyDates ? (periods.length - 1) * labelSpacing : 76));
         const availableWidth = svg.parentElement && svg.parentElement.clientWidth || svg.clientWidth || 900;
         const canvasWidth = Math.max(availableWidth, minimumWidth);
         svg.style.minWidth = minimumWidth + "px";
@@ -170,10 +178,34 @@
         });
         const points = values.map((value, index) => x(index) + "," + y(value)).join(" ");
         group.append(svgElement("polyline", {points, class: "forecast-chart-line"}));
+        let selectedPoint = null;
         values.forEach((value, index) => {
-            const circle = svgElement("circle", {cx: x(index), cy: y(value), r: 3.5, class: "forecast-chart-point"});
-            circle.append(svgElement("title", {}, range(periods[index].cobertura_inicio, periods[index].cobertura_fim) + ": " + quantity(units[index]) + " unidades estimadas (arredondadas)"));
+            const description = range(periods[index].cobertura_inicio, periods[index].cobertura_fim)
+                + ": " + quantity(units[index]) + " unidades estimadas (arredondadas)";
+            const circle = svgElement("circle", {cx: x(index), cy: y(value), r: 3.5,
+                class: "forecast-chart-point", tabindex: 0, role: "button", "aria-label": description});
+            circle.append(svgElement("title", {}, description));
+            const select = () => { selectedPoint = description; text("previsao-ponto-detalhe", description); };
+            ["focus", "pointerenter"].forEach((event) => circle.addEventListener(event, () => text("previsao-ponto-detalhe", description)));
+            ["blur", "pointerleave"].forEach((event) => circle.addEventListener(event, () => text("previsao-ponto-detalhe", selectedPoint || pointHelp)));
+            circle.addEventListener("click", select);
+            circle.addEventListener("keydown", (event) => {
+                if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select(); }
+            });
             group.append(circle);
+        });
+        let previousRight = -Infinity;
+        values.forEach((value, index) => {
+            const anchor = "middle";
+            const labelWidth = valueWidth(units[index]);
+            const start = x(index) - labelWidth / 2;
+            // Em séries longas, desenhar somente rótulos que caibam. A curva e
+            // os pontos focalizáveis continuam contendo todos os períodos.
+            if (!allDailyDates && (start < previousRight + 24 || start + labelWidth > canvasWidth - 12)) return;
+            const label = svgElement("text", {x: x(index), y: y(value) - 12, "text-anchor": anchor,
+                class: "forecast-chart-label forecast-chart-value-label", "aria-hidden": "true"}, quantity(units[index]));
+            group.append(label);
+            previousRight = start + labelWidth;
         });
         const capacity = Math.max(2, Math.floor(width / labelSpacing) + 1);
         const tickCount = Math.min(values.length, allDailyDates ? values.length : capacity);
