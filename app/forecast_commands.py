@@ -46,6 +46,25 @@ def map_command(produto_id, codigo_externo, confirmar, operador, motivo):
     click.echo("Associação explícita registrada localmente.")
 
 
+@forecast_commands.command("exportar-selecao")
+@with_appcontext
+def selection_command():
+    """Exporta o snapshot selecionado para o treinamento offline, sem dados brutos."""
+    from sqlalchemy.orm import Session
+    from app.database import db
+    from app.services.catalogacao_service import CatalogacaoError, snapshot_selecao_experimental
+    try:
+        with Session(db.engine) as session:
+            selection = snapshot_selecao_experimental(session)
+        root = PrevisaoService(current_app._get_current_object()).root
+        path = private_path(root, "data/reports/selecao-experimental-" + uuid4().hex + ".json")
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        _write_private(path, json.dumps(selection, ensure_ascii=False, allow_nan=False, indent=2) + "\n")
+    except CatalogacaoError as error:
+        raise click.ClickException(f"{error.code}: {error}") from None
+    click.echo("Seleção experimental privada: " + path.relative_to(root).as_posix())
+
+
 def _export(app, payload):
     root = PrevisaoService(app).root
     path = private_path(root, "data/reports/consulta-agente-" + uuid4().hex + ".json")

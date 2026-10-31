@@ -10,7 +10,7 @@ import subprocess
 import pytest
 
 from app.services.preparacao_dados_service import (
-    OUTPUT_FIELDS, PreparationError, prepare_history,
+    DATASET_SCHEMAS, LEGACY_OUTPUT_FIELDS, OUTPUT_FIELDS, PreparationError, prepare_history,
 )
 from scripts import prepare_history as cli
 
@@ -90,12 +90,12 @@ def test_agrega_por_dia_produto_preserva_codigo_e_conta_pedidos_distintos(privat
     result, report, dataset = run(private_repo)
     assert result["status"] == "aprovado"
     assert dataset == [
-        {"data": "2025-01-02", "codigo_produto": "00110", "codigo_grupo": "00005", "categoria": "Grupo Ficticio", "quantidade": "4.0", "numero_pedidos": "2"},
-        {"data": "2025-01-02", "codigo_produto": "00220", "codigo_grupo": "00005", "categoria": "Grupo Ficticio", "quantidade": "1.5", "numero_pedidos": "1"},
-        {"data": "2025-01-03", "codigo_produto": "00110", "codigo_grupo": "00005", "categoria": "Grupo Ficticio", "quantidade": "3", "numero_pedidos": "1"},
+        {"data": "2025-01-02", "codigo_produto": "00110", "nome_completo": "Produto Ficticio", "codigo_grupo": "00005", "categoria": "Grupo Ficticio", "quantidade": "4.0", "numero_pedidos": "2"},
+        {"data": "2025-01-02", "codigo_produto": "00220", "nome_completo": "Outro Produto Ficticio", "codigo_grupo": "00005", "categoria": "Grupo Ficticio", "quantidade": "1.5", "numero_pedidos": "1"},
+        {"data": "2025-01-03", "codigo_produto": "00110", "nome_completo": "Produto Ficticio", "codigo_grupo": "00005", "categoria": "Grupo Ficticio", "quantidade": "3", "numero_pedidos": "1"},
     ]
-    assert report["versao_pipeline"] == "2"
-    assert report["colunas_dataset"] == ["data", "codigo_produto", "codigo_grupo", "categoria", "quantidade", "numero_pedidos"]
+    assert report["versao_pipeline"] == "3"
+    assert report["colunas_dataset"] == ["data", "codigo_produto", "nome_completo", "codigo_grupo", "categoria", "quantidade", "numero_pedidos"]
     assert report["linhas_lidas"] == report["linhas_validas"] == 5
     assert report["numero_produtos"] == 2
     assert report["numero_pedidos"] == 2
@@ -115,6 +115,44 @@ def test_reexecucao_nao_acumula_demanda_nem_sobrescreve_arquivos(private_repo):
     assert first["dataset"] != second["dataset"]
     assert first["dataset"].read_bytes() == second["dataset"].read_bytes()
     assert first_report["sha256_dataset"] == second_report["sha256_dataset"]
+
+
+def test_nome_completo_preserva_texto_comercial_e_csv_sem_confundir_categoria(private_repo):
+    name = 'Sorvete Fictício, "Chocolate Especial" — Caixa de 10L'
+    write_source(private_repo, [
+        record(proNomeunificado="  " + name + "  "),
+        record(pvNro="PEDIDO-TESTE-2", proNomeunificado=name),
+    ])
+    result, report, dataset = run(private_repo)
+    assert result["status"] == "aprovado"
+    assert dataset == [{"data": "2025-01-02", "codigo_produto": "00110", "nome_completo": name,
+                        "codigo_grupo": "00005", "categoria": "Grupo Ficticio",
+                        "quantidade": "3.0", "numero_pedidos": "2"}]
+    assert name not in result["report"].read_text()
+    assert report["inconsistencias"]["codigos_com_varios_nomes"] == 0
+    assert_no_personal_data(result)
+
+
+def test_nome_completo_extenso_nao_e_abreviado_ou_truncado(private_repo):
+    name = "Nome comercial fictício " + "descrição " * 70
+    write_source(private_repo, [record(proNomeunificado=name)])
+    result, _, dataset = run(private_repo)
+    assert result["status"] == "aprovado"
+    assert dataset[0]["nome_completo"] == name.strip()
+
+
+@pytest.mark.parametrize("name", ["", "   "])
+def test_nome_completo_vazio_bloqueia_dataset_sem_inventar_identificacao(private_repo, name):
+    write_source(private_repo, [record(proNomeunificado=name)])
+    result, report, dataset = run(private_repo)
+    assert result["status"] == "bloqueado" and result["dataset"] is None and dataset == []
+    assert report["erros"]["campo_obrigatorio_vazio"] == 1
+
+
+def test_versao_nova_nao_redefine_contrato_de_datasets_legados():
+    assert DATASET_SCHEMAS == {"2": LEGACY_OUTPUT_FIELDS, "3": OUTPUT_FIELDS}
+    assert LEGACY_OUTPUT_FIELDS == ("data", "codigo_produto", "codigo_grupo", "categoria", "quantidade", "numero_pedidos")
+    assert "nome_completo" not in LEGACY_OUTPUT_FIELDS and OUTPUT_FIELDS[2] == "nome_completo"
 
 
 @pytest.mark.parametrize("policy,expected", [("dia_fonte", "2025-01-02"), ("America/Manaus", "2025-01-01")])
@@ -266,6 +304,7 @@ def test_cli_sucesso_e_politica_obrigatoria(private_repo, monkeypatch, capsys):
     output = capsys.readouterr().out
     assert "Preparação concluída" in output
     assert all(value not in output for value in PRIVATE_VALUES)
+    assert "Produto Ficticio" not in output
 
 
 def test_exporta_grupos_de_produtos_distintos_sem_misturar(private_repo):

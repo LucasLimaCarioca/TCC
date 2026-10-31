@@ -152,11 +152,13 @@ class EstoqueAgent(BaseAgent):
         product = await self.executar("consultar_produto", produto_id=produto_id)
         stock = product["disponivel"]
         association = await self.executar("conferir_associacao", produto_id=produto_id,
-                                         codigo_produto=forecast.payload["codigo_produto"])
+                                         codigo_produto=forecast.payload["codigo_produto"],
+                                         execucao_id=forecast.payload["execucao_id"],
+                                         experimento=forecast.payload.get("experimento"))
         if not association["confirmada"]:
             return {**product, "status": "associacao_pendente", "risco": None,
-                    "code": "MAPPING_REVIEW_REQUIRED",
-                    "mensagem": "Confira o vínculo em Catalogação antes de usar a previsão para este produto."}
+                    "code": association.get("code", "MAPPING_REVIEW_REQUIRED"),
+                    "mensagem": association.get("mensagem", "Confira o vínculo em Catalogação antes de usar a previsão para este produto.")}
         with localcontext() as context:
             context.prec = 128
             projected = Decimal(str(stock)) - Decimal(forecast.payload["total_previsto"])

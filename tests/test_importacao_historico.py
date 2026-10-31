@@ -21,7 +21,7 @@ from app.models.produto import Produto
 from app.models.venda import Venda
 from app.models.venda_historica import VendaHistorica
 from app.services import importacao_service as service
-from app.services.preparacao_dados_service import OUTPUT_FIELDS, prepare_history
+from app.services.preparacao_dados_service import LEGACY_OUTPUT_FIELDS as OUTPUT_FIELDS, prepare_history
 from scripts import import_history as cli
 
 

@@ -51,9 +51,9 @@ function payload() {
                 grupos: [], categorias: [], estado: "pendente", avisos: []}
         ],
         produtos: [
-            {id: 19, nome: "Cadastro livre fictício", codigo_externo: null, demonstracao: false, ativo: false, versao: "produto-19-v2"},
+            {id: 19, nome: "Cadastro livre fictício", codigo_externo: null, demonstracao: false, ativo: false, versao: "produto-19-v2", elegivel_experimento: false},
             {id: 42, nome: "Produto operacional fictício", codigo_externo: "00042", demonstracao: false, ativo: true, versao: "produto-42-v3"},
-            {id: 17, nome: "Demonstração fictícia", codigo_externo: null, demonstracao: true, ativo: true, versao: "produto-17-v1"}
+            {id: 17, nome: "Demonstração fictícia", codigo_externo: null, demonstracao: true, ativo: true, versao: "produto-17-v1", elegivel_experimento: true}
         ],
         operacoes: [
             {id: previousOperation, acao: "alterar", criado_em: "2030-01-01T12:00:00+00:00", codigos: ["00042"],
@@ -84,7 +84,7 @@ async function settle() {
     await new Promise(setImmediate);
 }
 
-async function harness({data = payload(), response = null, absent = false} = {}) {
+async function harness({data = payload(), response = null, absent = false, mode = "operacional"} = {}) {
     const elements = new Map();
     const get = (id) => {
         if (absent && id === "catalogacao-app") return null;
@@ -93,16 +93,23 @@ async function harness({data = payload(), response = null, absent = false} = {})
     };
     const form = get("catalogacao-form");
     const reverse = get("catalogacao-reverter");
-    addControls(form, {codigo_produto: "", acao: "associar", produto_id: "", nome: "", categoria: "", sabor: "", preco: "",
-        estoque_inicial: "", estoque_minimo: "", descricao: "", situacao: "", operador: "", motivo: "", confirmar: ""});
+    addControls(form, {tipo_vinculo: mode, codigo_produto: "", acao: "associar", produto_id: "", nome: "", categoria: "", sabor: "", preco: "",
+        estoque_inicial: "", estoque_minimo: "", descricao: "", situacao: "", operador: "", motivo: "", confirmar: "",
+        descricao_historica: "", embalagem_historica: "", unidade_historica: "", unidade_simulada: "",
+        identidade_confirmada: "", embalagem_confirmada: "", unidade_confirmada: "", produto_ficticio_confirmado: "", selecionado_previsao: ""});
     addControls(reverse, {reverter_operacao_id: "", operador: "", motivo: "", confirmar: ""});
     form.elements.codigo_produto.required = true;
     reverse.elements.reverter_operacao_id.required = true;
     const commercial = ["nome", "categoria", "sabor", "preco", "estoque_inicial", "estoque_minimo", "situacao"];
     commercial.forEach((name) => { form.elements[name].required = true; });
+    const compatibility = ["descricao_historica", "embalagem_historica", "unidade_historica", "unidade_simulada",
+        "identidade_confirmada", "embalagem_confirmada", "unidade_confirmada", "produto_ficticio_confirmado"];
+    compatibility.forEach((name) => { form.elements[name].required = true; });
+    [...compatibility.slice(4), "selecionado_previsao"].forEach((name) => { form.elements[name].type = "checkbox"; });
     for (const target of [form, reverse]) {
         target.reportValidity = () => target.forceValidity || target.elements.every((field) => {
             if (field.disabled || target === form && commercial.includes(field.name) && get("catalogacao-novo").disabled) return true;
+            if (target === form && compatibility.includes(field.name) && get("catalogacao-experimental").disabled) return true;
             return !field.required || (field.type === "checkbox" ? field.checked : field.value.trim() !== "");
         });
     }
@@ -139,6 +146,141 @@ async function harness({data = payload(), response = null, absent = false} = {})
 function descendants(element) {
     return element.children.flatMap((child) => [child, ...descendants(child)]);
 }
+
+function experimentalEvidence(ui, {selected = true} = {}) {
+    Object.entries({descricao_historica: " Produto histórico fictício sabor A ", embalagem_historica: " Caixa fictícia de 10L ",
+        unidade_historica: " caixa ", unidade_simulada: " caixa "}).forEach(([name, value]) => { ui.form.elements[name].value = value; });
+    for (const name of ["identidade_confirmada", "embalagem_confirmada", "unidade_confirmada", "produto_ficticio_confirmado"]) {
+        ui.form.elements[name].checked = true;
+    }
+    ui.form.elements.selecionado_previsao.checked = selected;
+}
+
+test("a interface oferece finalidade experimental por padrão e identifica a origem dos dados", () => {
+    const template = fs.readFileSync(path.join(__dirname, "../../app/templates/catalogacao.html"), "utf8");
+    assert.match(template, /value="experimental" selected/);
+    assert.match(template, /Histórico real · estoque e vendas operacionais simulados/);
+    assert.match(template, /11 produtos fictícios já definidos/);
+    assert.match(template, /name="selecionado_previsao" type="checkbox"/);
+});
+
+test("modo experimental oferece somente os produtos fictícios elegíveis sem criar cadastros", async () => {
+    const ui = await harness({mode: "experimental"});
+    assert.deepEqual(ui.form.elements.produto_id.children.map((option) => option.value), ["", "17"]);
+    assert.equal(ui.get("catalogacao-acao-criar").disabled, true);
+    assert.equal(ui.get("catalogacao-acao-criar").hidden, true);
+    assert.equal(ui.get("catalogacao-novo").disabled, true);
+    assert.equal(ui.get("catalogacao-experimental").disabled, false);
+    for (const name of ["descricao_historica", "embalagem_historica", "unidade_historica", "unidade_simulada"]) {
+        assert.equal(ui.form.elements[name].value, "");
+    }
+    for (const name of ["identidade_confirmada", "embalagem_confirmada", "unidade_confirmada", "produto_ficticio_confirmado", "selecionado_previsao"]) {
+        assert.equal(ui.form.elements[name].checked, false);
+    }
+    assert.match(ui.get("catalogacao-codigos").textContent, /Operacional \/ legado · fora da seleção experimental/);
+});
+
+test("associação experimental selecionada envia compatibilidade e conserva código textual e ID interno", async () => {
+    const ui = await harness({mode: "experimental"});
+    ui.choose("00043", "associar", "17");
+    experimentalEvidence(ui);
+    ui.confirm();
+    await ui.submit();
+    const body = JSON.parse(ui.posts[0].options.body);
+    assert.equal(body.codigo_produto, "00043");
+    assert.equal(body.produto_id, 17);
+    assert.equal(body.tipo_vinculo, "experimental");
+    assert.equal(body.selecionado_previsao, true);
+    assert.equal(body.produto_ficticio_confirmado, true);
+    assert.deepEqual(body.compatibilidade, {identidade_confirmada: true, embalagem_confirmada: true, unidade_confirmada: true,
+        descricao_historica: "Produto histórico fictício sabor A", embalagem_historica: "Caixa fictícia de 10L",
+        unidade_historica: "caixa", unidade_simulada: "caixa"});
+    assert.equal(Object.hasOwn(body, "produto"), false);
+});
+
+test("confirmações comerciais ausentes ou negativas impedem o envio mesmo sem validação nativa", async () => {
+    const ui = await harness({mode: "experimental"});
+    ui.choose("00017", "associar", "17");
+    ui.form.forceValidity = true;
+    ui.confirm();
+    await ui.submit();
+    assert.equal(ui.posts.length, 0);
+    assert.match(ui.get("catalogacao-feedback").textContent, /Confirme a identidade comercial/);
+    for (const name of ["identidade_confirmada", "embalagem_confirmada", "unidade_confirmada", "produto_ficticio_confirmado"]) {
+        experimentalEvidence(ui);
+        ui.form.elements[name].checked = false;
+        await ui.submit();
+        assert.equal(ui.posts.length, 0);
+    }
+    experimentalEvidence(ui);
+    ui.form.elements.descricao_historica.value = " ";
+    await ui.submit();
+    assert.equal(ui.posts.length, 0);
+    assert.match(ui.get("catalogacao-feedback").textContent, /referência comercial/);
+});
+
+test("adulterar a ação ou o produto não permite criação experimental nem destino não elegível", async () => {
+    const ui = await harness({mode: "experimental"});
+    ui.choose("00017", "associar", "17");
+    experimentalEvidence(ui);
+    ui.confirm();
+    ui.form.forceValidity = true;
+    ui.form.elements.acao.value = "criar";
+    await ui.submit();
+    assert.equal(ui.posts.length, 0);
+    assert.match(ui.get("catalogacao-feedback").textContent, /não permite criar produtos/);
+    ui.form.elements.acao.value = "associar";
+    ui.form.elements.produto_id.value = "19";
+    await ui.submit();
+    assert.equal(ui.posts.length, 0);
+    assert.match(ui.get("catalogacao-feedback").textContent, /11 produtos fictícios elegíveis/);
+});
+
+test("revisão restaura evidências e seleção atual sem aprovar caixas de compatibilidade", async () => {
+    const data = payload();
+    const mapped = data.codigos[1];
+    mapped.tipo_vinculo = "experimental";
+    mapped.selecionado_previsao = true;
+    mapped.compatibilidade = {identidade_confirmada: true, embalagem_confirmada: true, unidade_confirmada: true,
+        descricao_historica: "Descrição histórica fictícia conferida", embalagem_historica: "Embalagem fictícia conferida",
+        unidade_historica: "caixa", unidade_simulada: "caixa", produto_ficticio_confirmado: true};
+    data.produtos[1].elegivel_experimento = true;
+    const ui = await harness({data});
+    ui.choose("00042", "revisar");
+    assert.equal(ui.form.elements.tipo_vinculo.value, "experimental");
+    assert.equal(ui.form.elements.descricao_historica.value, mapped.compatibilidade.descricao_historica);
+    assert.equal(ui.form.elements.selecionado_previsao.checked, true);
+    assert.equal(ui.form.elements.identidade_confirmada.checked, false);
+    assert.equal(ui.form.elements.produto_ficticio_confirmado.checked, false);
+    assert.match(ui.get("catalogacao-codigos").textContent, /Experimental · histórico real, estoque e vendas simulados · selecionado/);
+    for (const name of ["identidade_confirmada", "embalagem_confirmada", "unidade_confirmada", "produto_ficticio_confirmado"]) ui.form.elements[name].checked = true;
+    ui.form.elements.selecionado_previsao.checked = false;
+    ui.confirm();
+    await ui.submit();
+    const body = JSON.parse(ui.posts[0].options.body);
+    assert.equal(body.acao, "revisar");
+    assert.equal(body.tipo_vinculo, "experimental");
+    assert.equal(body.selecionado_previsao, false);
+    assert.equal(body.produto_id, 42);
+    assert.equal(body.compatibilidade.descricao_historica, mapped.compatibilidade.descricao_historica);
+});
+
+test("editar evidências ou inclusão na previsão exige nova confirmação da operação", async () => {
+    const ui = await harness({mode: "experimental"});
+    ui.choose("00017", "associar", "17");
+    experimentalEvidence(ui);
+    for (const name of ["descricao_historica", "embalagem_historica", "unidade_historica", "unidade_simulada", "selecionado_previsao",
+        "identidade_confirmada", "embalagem_confirmada", "unidade_confirmada", "produto_ficticio_confirmado"]) {
+        ui.confirm();
+        ui.form.listeners.input({target: ui.form.elements[name]});
+        assert.equal(ui.form.elements.confirmar.checked, false);
+    }
+    ui.confirm();
+    ui.change(ui.form.elements.tipo_vinculo, "operacional");
+    assert.equal(ui.form.elements.confirmar.checked, false);
+    assert.equal(ui.form.elements.identidade_confirmada.checked, false);
+    assert.equal(ui.get("catalogacao-experimental").disabled, true);
+});
 
 test("renderiza códigos textuais, ausência de nome e avisos usando apenas texto", async () => {
     const data = payload();

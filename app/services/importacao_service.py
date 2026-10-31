@@ -18,7 +18,7 @@ from app.database import db
 from app.models.produto import Produto
 from app.models.venda_historica import VendaHistorica
 from app.services.preparacao_dados_service import (
-    OUTPUT_FIELDS, PIPELINE_VERSION, PreparationError, _write_private, private_path,
+    DATASET_SCHEMAS, LEGACY_OUTPUT_FIELDS, PreparationError, _write_private, private_path,
 )
 
 
@@ -65,8 +65,8 @@ def _signature(row):
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
-def _parse_row(values):
-    row = {key: value.strip() for key, value in zip(OUTPUT_FIELDS, values)}
+def _parse_row(values, fields):
+    row = {key: value.strip() for key, value in zip(fields, values)}
     errors = set()
     try:
         day = date.fromisoformat(row["data"])
@@ -79,6 +79,8 @@ def _parse_row(values):
         value = row[field]
         if len(value) > maximum or (required and not value) or any(ord(char) < 32 for char in value):
             errors.add("metadado_invalido")
+    if "nome_completo" in row and not row["nome_completo"]:
+        errors.add("nome_completo_invalido")
     try:
         quantity = Decimal(row["quantidade"])
         if (not quantity.is_finite() or quantity < 0 or quantity >= Decimal("1e16")
@@ -95,29 +97,34 @@ def _parse_row(values):
         "data": day, "codigo_produto": row["codigo_produto"],
         "codigo_grupo": row["codigo_grupo"] or None, "categoria": row["categoria"] or None,
         "quantidade": quantity, "numero_pedidos": int(orders_text),
+        **({"nome_completo": row["nome_completo"]} if "nome_completo" in row else {}),
     }, errors
 
 
-def _read_dataset(content, report, errors):
+def _read_dataset(content, report, errors, fields):
     rows = {}
     groups, categories, group_names = defaultdict(set), defaultdict(set), defaultdict(set)
+    names = defaultdict(set)
     try:
         reader = csv.reader(io.StringIO(content.decode("utf-8-sig"), newline=""), strict=True)
-        if tuple(next(reader, [])) != OUTPUT_FIELDS:
+        if tuple(next(reader, [])) != fields:
             errors["schema_incompativel"] += 1
             return rows
         for values in reader:
             report["linhas_lidas"] += 1
-            if len(values) != len(OUTPUT_FIELDS):
+            if len(values) != len(fields):
                 errors["estrutura_linha"] += 1
                 report["linhas_rejeitadas"] += 1
                 continue
-            row, row_errors = _parse_row(values)
+            row, row_errors = _parse_row(values, fields)
             if row_errors:
                 errors.update(row_errors)
                 report["linhas_rejeitadas"] += 1
                 continue
             report["linhas_validas"] += 1
+            name = row.pop("nome_completo", None)
+            if name is not None:
+                names[row["codigo_produto"]].add(name)
             key = row["codigo_produto"], row["data"]
             row["source_hash"] = _signature(row)
             if key in rows:
@@ -135,7 +142,7 @@ def _read_dataset(content, report, errors):
                     group_names[row["codigo_grupo"]].add(row["categoria"])
         if not report["linhas_lidas"]:
             errors["sem_registros"] += 1
-        if any(len(values) > 1 for mapping in (groups, categories, group_names) for values in mapping.values()):
+        if any(len(values) > 1 for mapping in (groups, categories, group_names, names) for values in mapping.values()):
             errors["metadados_inconsistentes"] += 1
     except UnicodeError:
         errors["encoding_invalido"] += 1
@@ -192,7 +199,7 @@ def _stored_rows(session, codes):
 
 
 def _stored_signature(record):
-    return _signature({field: getattr(record, field) for field in OUTPUT_FIELDS})
+    return _signature({field: getattr(record, field) for field in LEGACY_OUTPUT_FIELDS})
 
 
 def importar_historico(project_root, preparation_report, *, validar_apenas=False):
@@ -206,28 +213,30 @@ def importar_historico(project_root, preparation_report, *, validar_apenas=False
     try:
         input_report = _input_file(root, preparation_report, "reports")
         preparation = json.loads(input_report.read_text(encoding="utf-8"))
+        version = preparation.get("versao_pipeline") if isinstance(preparation, dict) else None
+        fields = DATASET_SCHEMAS.get(version) if isinstance(version, str) else None
         if (not isinstance(preparation, dict) or preparation.get("status") != "aprovado"
-                or preparation.get("versao_pipeline") != PIPELINE_VERSION
+                or fields is None
                 or preparation.get("politica_data") != "dia_fonte"
                 or preparation.get("erros") != {}
-                or preparation.get("colunas_dataset") != list(OUTPUT_FIELDS)
+                or preparation.get("colunas_dataset") != list(fields)
                 or not _hash(preparation.get("sha256_dataset"))
                 or not _hash(preparation.get("sha256_fonte"))
                 or not isinstance(preparation.get("dataset"), str)):
-            raise ImportacaoError("Exige relatório aprovado da preparação atual, com política dia_fonte.")
+            raise ImportacaoError("Exige relatório aprovado de uma versão suportada da preparação, com política dia_fonte.")
         source = _input_file(root, preparation["dataset"], "processed")
         content = source.read_bytes()
         if db.engine.dialect.name != "sqlite":
             raise ImportacaoError("A importação desta fase suporta apenas SQLite local.")
         report = {
             "versao_importacao": IMPORT_VERSION,
-            "versao_preparacao": PIPELINE_VERSION,
+            "versao_preparacao": version,
             "gerado_em": datetime.now(timezone.utc).isoformat(),
             "relatorio_preparacao": input_report.relative_to(root).as_posix(),
             "dataset": source.relative_to(root).as_posix(),
             "sha256_fonte": preparation["sha256_fonte"],
             "sha256_dataset": hashlib.sha256(content).hexdigest(),
-            "politica_data": "dia_fonte", "colunas_dataset": list(OUTPUT_FIELDS),
+            "politica_data": "dia_fonte", "colunas_dataset": list(fields),
             "modo": "validacao" if validar_apenas else "importacao", "status": "bloqueado",
             "linhas_lidas": 0, "linhas_validas": 0, "linhas_rejeitadas": 0,
             "duplicatas_no_dataset": 0, "linhas_ja_importadas": 0, "linhas_novas": 0,
@@ -238,7 +247,7 @@ def importar_historico(project_root, preparation_report, *, validar_apenas=False
             errors["hash_dataset_divergente"] += 1
             rows = {}
         else:
-            rows = _read_dataset(content, report, errors)
+            rows = _read_dataset(content, report, errors, fields)
         _profile(rows, report)
         if errors:
             return {"status": "bloqueado", "report": _save_report(root, report, errors)}
@@ -316,5 +325,5 @@ def serie_diaria(codigo_produto, *, inicio=None, fim=None):
     if last:
         query = query.where(VendaHistorica.data <= last)
     with Session(db.engine) as session:
-        return [_canonical({field: getattr(record, field) for field in OUTPUT_FIELDS})
+        return [_canonical({field: getattr(record, field) for field in LEGACY_OUTPUT_FIELDS})
                 for record in session.scalars(query.order_by(VendaHistorica.data))]

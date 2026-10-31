@@ -142,7 +142,9 @@ class PrevisaoService:
             result = self._json(contents[manifest["forecast_file"]])
             report = self._json(contents[manifest["report_file"]])
             if (result["run_id"] != manifest["run_id"] or result["generated_at"] != manifest["generated_at"]
-                    or set(result["models"]) != set(manifest["models"])):
+                    or set(result["models"]) != set(manifest["models"])
+                    or manifest.get("experimento") != result.get("experimento")
+                    or report.get("experimento") != result.get("experimento")):
                 raise ValueError
             repository.validar_execucao(result, report)
             return path, digest, result, report
@@ -200,6 +202,13 @@ class PrevisaoService:
             forecast = result["forecast"]["overall"] if code is None else result["forecast"]["products"].get(code)
             if forecast is None:
                 raise PrevisaoError("HISTORY_NOT_FOUND", "O produto não possui histórico elegível nesta execução.")
+            from app.services.experimento_previsao_service import validar_publicacao_experimental, ExperimentoError
+            with self.app.app_context(), Session(db.engine) as session:
+                current_product = session.get(Produto, produto_id) if produto_id is not None else None
+                try:
+                    experimental_context = validar_publicacao_experimental(session, result, current_product)
+                except ExperimentoError as error:
+                    raise PrevisaoError(error.code, str(error)) from None
             if produto_id is not None:
                 from app.services.catalogacao_service import associacao_revisada
                 with self.app.app_context(), Session(db.engine) as session:
@@ -220,7 +229,8 @@ class PrevisaoService:
                     "cobertura_inicio": days[0].isoformat(), "cobertura_fim": days[-1].isoformat(),
                     "total_previsto": _text(sum(values, Decimal(0))), "periodos": _periods(days, values, granularidade),
                     "modelo": result["models"] if code is None else result["models"][code],
-                    "gerada_em": result["generated_at"], "versao": result["version"], "execucao_id": result["run_id"]}
+                    "gerada_em": result["generated_at"], "versao": result["version"], "execucao_id": result["run_id"],
+                    **({"experimento": experimental_context} if experimental_context is not None else {})}
         except PrevisaoError:
             raise
         except repository.RepositoryError as error:
@@ -247,8 +257,16 @@ class PrevisaoService:
 
         try:
             progress()
+            from app.services.catalogacao_service import snapshot_selecao_experimental, CatalogacaoError
+            with self.app.app_context(), Session(db.engine) as session:
+                try:
+                    experimental_context = snapshot_selecao_experimental(session)
+                except CatalogacaoError as error:
+                    raise PrevisaoError(error.code, str(error)) from None
             paths = run_forecast(self.root, review, cutoff=data_corte, horizon=horizon,
                 start=self._config("FORECAST_START", "2022-01-01"),
+                codes=[item["codigo_produto"] for item in experimental_context["associacoes"]],
+                experimental_context=experimental_context,
                 calendar_overrides=self._config("FORECAST_CALENDAR_OVERRIDES") or None, progress=progress)
             progress()
             return self.carregar(paths["manifest"], cancel_event=cancelled)

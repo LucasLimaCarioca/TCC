@@ -42,7 +42,7 @@
                         <td>{{ produto.quantidade_disponivel }}</td>
                         <td>{{ produto.estoque_minimo }}</td>
                         <td>{% if produto.ativo %}Ativo{% else %}Inativo{% endif %}</td>
-                        <td>{% if produto.demonstracao %}<strong class="demo-badge">Demonstração</strong>{% else %}Cadastro operacional / origem não classificada{% endif %}</td>
+                        <td>{% if tipos_vinculo.get(produto.id) == 'experimental' %}<strong class="demo-badge">Estoque e vendas simulados · vínculo experimental</strong>{% elif produto.demonstracao %}<strong class="demo-badge">Demonstração</strong>{% else %}Cadastro operacional / origem não classificada{% endif %}</td>
                         <td>
                             {% if produto.quantidade_disponivel <= produto.estoque_minimo %}
                                 Baixo

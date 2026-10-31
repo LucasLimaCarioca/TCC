@@ -28,7 +28,7 @@ from app.agents.protocol import JIDS
 from app.agents.runtime import AgentRuntime
 from app.app import create_app
 from app.database import db
-from app.forecasting.service import OUTPUT_FIELDS, run_forecast
+from app.forecasting.service import LEGACY_OUTPUT_FIELDS as OUTPUT_FIELDS, run_forecast
 from app.models.alerta_estoque import AlertaEstoque
 from app.models.cliente import Cliente
 from app.models.contexto_conversa import ContextoConversa

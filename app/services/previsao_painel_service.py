@@ -5,9 +5,10 @@ from datetime import timedelta
 from decimal import Decimal, localcontext
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.database import db
-from app.forecasting.service import OUTPUT_FIELDS
+from app.services.preparacao_dados_service import DATASET_SCHEMAS
 from app.models.produto import Produto
 from app.services import previsao_repository as repository
 from app.services.previsao_service import PrevisaoError, _day, _periods, _text, hoje_manaus
@@ -39,7 +40,7 @@ def _update(service, result, today):
         review = service._json(path.read_bytes())
         if (type(review) is not dict or review.get("status") != "revisado_com_recorte"
                 or review.get("politica_data") != "dia_fonte"
-                or review.get("colunas") != list(OUTPUT_FIELDS)
+                or review.get("colunas") not in [list(fields) for fields in DATASET_SCHEMAS.values()]
                 or type(review.get("contexto")) is not dict
                 or review["contexto"].get("exportacao_completa") is not True):
             return disabled
@@ -75,6 +76,12 @@ def painel(service, codigo_produto=None, granularidade="diaria", data_inicio=Non
             active["manifest_path"], active["manifest_sha256"], check_all=False)
         if result != active["result"]:
             raise PrevisaoError("INVALID_ARTIFACT", "A previsão diverge da execução persistida.")
+        from app.services.experimento_previsao_service import validar_publicacao_experimental, ExperimentoError
+        with service.app.app_context(), Session(db.engine) as session:
+            try:
+                experimental_context = validar_publicacao_experimental(session, result)
+            except ExperimentoError as error:
+                raise PrevisaoError(error.code, str(error)) from None
         codes = sorted(result["forecast"]["products"])
         if codigo_produto is not None and codigo_produto not in codes:
             raise PrevisaoError("HISTORY_NOT_FOUND", "O produto não possui histórico elegível nesta execução.")
@@ -130,7 +137,8 @@ def painel(service, codigo_produto=None, granularidade="diaria", data_inicio=Non
                 "total_previsto": _text(sum(values, Decimal(0))),
                 "periodos": _periods(days, values, granularidade),
                 "modelos": dict(sorted(Counter(result["models"][code] for code in selected).items())),
-                "avaliacoes": evaluations, "atualizacao": _update(service, result, today)}
+                "avaliacoes": evaluations, "atualizacao": _update(service, result, today),
+                **({"experimento": experimental_context} if experimental_context is not None else {})}
     except PrevisaoError:
         raise
     except repository.RepositoryError as error:

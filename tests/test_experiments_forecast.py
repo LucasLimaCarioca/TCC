@@ -22,7 +22,7 @@ def evaluated(project):
     first, cutoff = date(2025, 6, 2), date(2026, 1, 10)
     output = io.StringIO(newline="")
     writer = csv.writer(output, lineterminator="\n")
-    writer.writerow(service.OUTPUT_FIELDS)
+    writer.writerow(service.LEGACY_OUTPUT_FIELDS)
     for offset in range((cutoff - first).days + 1):
         day = first + timedelta(days=offset)
         for code, value in (("00110", (offset % 11) + 1), ("00220", 0)):

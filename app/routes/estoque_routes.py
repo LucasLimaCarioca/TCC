@@ -24,6 +24,7 @@ def tela_estoque():
     estoque = EstoqueClient().executar("visao_estoque")
     produtos = Produto.query.filter_by(ativo=True).order_by(Produto.categoria, Produto.sabor).all()
     return render_template("estoque.html", titulo="Controle de Estoque", produtos=produtos, estoque=estoque,
+                           tipos_vinculo={item["produto_id"]: item.get("tipo_vinculo") for item in estoque["produtos"]},
                            horizonte_preventivo_dias=horizonte_preventivo(current_app))
 
 

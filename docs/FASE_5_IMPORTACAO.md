@@ -59,7 +59,7 @@ Não exibem registros, códigos reais, categorias, hashes ou exceções internas
 
 ## Contrato e proteção
 
-O relatório de preparação deve estar em `data/reports/`, aprovado pela versão 2,
+O relatório de preparação deve estar em `data/reports/`, aprovado pela versão 2 ou 3,
 sem erros, com política **`dia_fonte`** e hashes SHA-256 válidos. O dataset referido
 deve estar em `data/processed/`. O hash dos bytes do CSV deve ser idêntico ao hash
 registrado na preparação. Não é necessário ler novamente o CSV original.
@@ -71,7 +71,9 @@ públicos configuráveis, uploads ou chaves HMAC. A fonte e o relatório origina
 não são reescritos. Essas validações conferem integridade e contrato; os nomes
 comerciais devem continuar correspondendo ao significado definido na preparação.
 
-O CSV UTF-8, com BOM opcional, exige exatamente as seis colunas, nesta ordem:
+O CSV UTF-8, com BOM opcional, exige o cabeçalho correspondente à versão do
+relatório. A versão 2 conserva as seis colunas abaixo; a versão 3 acrescenta
+`nome_completo` imediatamente após `codigo_produto`:
 
 | Campo | Validação |
 |---|---|
@@ -81,6 +83,12 @@ O CSV UTF-8, com BOM opcional, exige exatamente as seis colunas, nesta ordem:
 | `categoria` | Texto opcional, até 100 caracteres; grupo comercial da fonte |
 | `quantidade` | Decimal finito não negativo, inferior a 10¹⁶ e até nove casas |
 | `numero_pedidos` | Inteiro não negativo, até o limite de 64 bits do SQLite |
+
+Na versão 3, `nome_completo` deve estar preenchido e ser consistente por código,
+sem abreviação ou truncamento. Ele permanece no CSV preparado como identificação
+comercial. A importação conserva as seis propriedades de `VendaHistorica`; a
+coluna adicional não altera a assinatura da observação, não duplica uma linha
+já importada e não modifica nomes ou associações do catálogo operacional.
 
 Espaços externos são aparados. Cabeçalhos extras, repetidos ou ausentes,
 codificação inválida, datas/números inválidos, linhas malformadas e metadados
@@ -215,7 +223,8 @@ não entram nesse recorte. O CSV original, o dataset canônico e o histórico
 completo no banco foram preservados.
 
 O recorte está em `data/processed/revisao-decisoes-<id>/demanda_diaria_revisada.csv`,
-com as mesmas seis colunas. O relatório
+com as mesmas seis colunas da preparação versão 2 original. Novos recortes
+da versão 3 devem preservar também `nome_completo`. O relatório
 `data/reports/revisao-decisoes-<id>.json` registra os hashes de origem/recorte,
 regras, observações desconsideradas e reconciliação das quantidades por código.
 Uma versão `.md` orienta a leitura. Esse relatório de revisão não substitui o

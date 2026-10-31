@@ -26,7 +26,7 @@ def project(tmp_path):
     (root / "data/processed").mkdir()
     output = io.StringIO(newline="")
     writer = csv.writer(output, lineterminator="\n")
-    writer.writerow(service.OUTPUT_FIELDS)
+    writer.writerow(service.LEGACY_OUTPUT_FIELDS)
     writer.writerow(("2025-12-31", "00110", "00005", "Grupo Fictício", "9", "1"))
     for offset in range(10):
         for code, quantity in (("00110", 2), ("00220", 3)):
@@ -36,18 +36,31 @@ def project(tmp_path):
     for name in ("canonical.csv", "reviewed.csv"):
         (root / "data/processed" / name).write_text(content, encoding="utf-8")
     preparation = {"status": "aprovado", "versao_pipeline": "2", "erros": {},
-                   "politica_data": "dia_fonte", "colunas_dataset": list(service.OUTPUT_FIELDS),
+                   "politica_data": "dia_fonte", "colunas_dataset": list(service.LEGACY_OUTPUT_FIELDS),
                    "dataset": "data/processed/canonical.csv", "sha256_dataset": sha256(content.encode()).hexdigest()}
     prep = root / "data/reports/preparacao-ficticia.json"
     prep.write_text(json.dumps(preparation))
     review = {"status": "revisado_com_recorte", "politica_data": "dia_fonte",
-              "colunas": list(service.OUTPUT_FIELDS), "contexto": {"exportacao_completa": True},
+              "colunas": list(service.LEGACY_OUTPUT_FIELDS), "contexto": {"exportacao_completa": True},
               "data_referencia": "2026-01-10", "relatorio_preparacao": prep.relative_to(root).as_posix(),
               "dataset_canonico": preparation["dataset"], "sha256_canonico": preparation["sha256_dataset"],
               "dataset_revisado": "data/processed/reviewed.csv", "sha256_revisado": preparation["sha256_dataset"]}
     path = root / "data/reports/revisao-ficticia.json"
     path.write_text(json.dumps(review))
     return root, path
+
+
+@pytest.fixture
+def selection_file(project):
+    from app.forecasting.experimental import context_signature
+    root, _ = project
+    context = {"versao": 1, "natureza": "experimental", "origem_historico": "real",
+        "estoque": "simulado", "vendas_operacionais": "simuladas",
+        "associacoes": [{"produto_id": 42, "codigo_produto": "00110", "versao_revisao": "a" * 64}]}
+    context["assinatura"] = context_signature(context)
+    path = root / "data/reports/selecao-ficticia.json"
+    path.write_text(json.dumps(context))
+    return path
 
 
 def execute(project, **kwargs):
@@ -95,7 +108,7 @@ def test_pipeline_longo_avalia_todos_os_candidatos_e_publica_metrica_de_teste(pr
     first, cutoff = date(2025, 6, 1), date(2026, 1, 10)
     output = io.StringIO(newline="")
     writer = csv.writer(output, lineterminator="\n")
-    writer.writerow(service.OUTPUT_FIELDS)
+    writer.writerow(service.LEGACY_OUTPUT_FIELDS)
     for offset in range((cutoff - first).days + 1):
         day = first + timedelta(days=offset)
         writer.writerow((day.isoformat(), "00110", "00005", "Grupo Fictício", (offset % 11) + 1, 1))
@@ -216,10 +229,11 @@ def test_protecao_git_recusa_leitura_de_dados_nao_ignorados(project):
         execute(project)
 
 
-def test_cli_treino_e_consulta_nunca_imprimem_codigos_ou_quantidades(project, monkeypatch, capsys):
+def test_cli_treino_e_consulta_nunca_imprimem_codigos_ou_quantidades(project, selection_file, monkeypatch, capsys):
     root, review = project
     monkeypatch.setattr(cli, "__file__", str(root / "scripts/forecast_history.py"))
-    assert cli.main(["train", "--review", str(review), "--cutoff", "2026-01-10", "--start", "2026-01-01", "--horizon", "10"]) == 0
+    assert cli.main(["train", "--review", str(review), "--cutoff", "2026-01-10", "--start", "2026-01-01", "--horizon", "10",
+                     "--experimental-selection", str(selection_file)]) == 0
     output = capsys.readouterr()
     assert "Manifesto privado:" in output.out
     assert "00110" not in output.out and "Grupo Fictício" not in output.out
@@ -229,8 +243,17 @@ def test_cli_treino_e_consulta_nunca_imprimem_codigos_ou_quantidades(project, mo
     assert "Consulta privada:" in output.out and "00110" not in output.out
 
 
-def test_cli_falha_controlada_sem_traceback(project, monkeypatch, capsys):
+def test_cli_falha_controlada_sem_traceback(project, selection_file, monkeypatch, capsys):
     root, review = project
     monkeypatch.setattr(cli, "__file__", str(root / "scripts/forecast_history.py"))
-    assert cli.main(["train", "--review", str(review), "--cutoff", "2030-01-01"]) == 2
+    assert cli.main(["train", "--review", str(review), "--cutoff", "2030-01-01",
+                     "--experimental-selection", str(selection_file)]) == 2
     assert "Traceback" not in capsys.readouterr().err
+
+
+def test_cli_treino_sem_selecao_nao_recorre_ao_historico_inteiro(project, monkeypatch, capsys):
+    root, review = project
+    monkeypatch.setattr(cli, "__file__", str(root / "scripts/forecast_history.py"))
+    assert cli.main(["train", "--review", str(review), "--cutoff", "2026-01-10"]) == 2
+    assert "--experimental-selection" in capsys.readouterr().err
+    assert not (root / "data/artifacts").exists()

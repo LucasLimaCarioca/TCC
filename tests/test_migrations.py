@@ -63,7 +63,7 @@ def test_banco_vazio_cria_schema_equivalente_aos_modelos(migration_project):
     root, _, app = migration_project
     with app.app_context():
         result = upgrade_database(project_root=root)
-        assert result == {"updated": True, "revision": "0009_catalogacao_historica", "backup": None}
+        assert result == {"updated": True, "revision": "0010_associacoes_experimentais", "backup": None}
         with db.engine.connect() as connection:
             assert compare_metadata(MigrationContext.configure(connection), db.metadata) == []
             assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
@@ -163,7 +163,7 @@ def test_cli_upgrade_current_e_create_db_compativeis(migration_project, monkeypa
     assert result.exit_code == 0, result.output
     result = app.test_cli_runner().invoke(args=["db", "current"])
     assert result.exit_code == 0
-    assert "0009_catalogacao_historica" in result.output
+    assert "0010_associacoes_experimentais" in result.output
     monkeypatch.setattr("app.app.create_app", lambda: app)
     with pytest.raises(SystemExit) as result:
         runpy.run_path(str(ROOT / "create_db.py"), run_name="__main__")
@@ -310,7 +310,7 @@ def test_integridade_operacoes_migra_0005_preservando_recibos_e_auditoria(migrat
     before = snapshot(path)
     with app.app_context():
         result = upgrade_database(project_root=root)
-        assert result["revision"] == "0009_catalogacao_historica"
+        assert result["revision"] == "0010_associacoes_experimentais"
         assert snapshot(result["backup"]) == before
         after = snapshot(path)
         new_tables = {"alembic_version", "previsoes_execucoes", "revisoes_associacoes_historicas", "operacoes_catalogacao"}
@@ -350,13 +350,13 @@ def test_migracao_0007_preserva_previsao_legada_e_todos_os_outros_registros(migr
     before = snapshot(path)
     with app.app_context():
         result = upgrade_database(project_root=root)
-        assert result["revision"] == "0009_catalogacao_historica"
+        assert result["revision"] == "0010_associacoes_experimentais"
         assert snapshot(result["backup"]) == before
         after = snapshot(path)
         assert set(after) == set(before) | {"previsoes_execucoes", "revisoes_associacoes_historicas", "operacoes_catalogacao"}
         for table, records in before.items():
             if table == "alembic_version":
-                assert after[table] == [("0009_catalogacao_historica",)]
+                assert after[table] == [("0010_associacoes_experimentais",)]
             elif table == "previsoes_demanda":
                 assert [row[:-5] for row in after[table]] == records
                 assert all(row[-5:] == (None,) * 5 for row in after[table])
@@ -412,13 +412,13 @@ def test_migracao_0008_preserva_alertas_legados_sem_inventar_snapshot(migration_
     before = snapshot(path)
     with app.app_context():
         result = upgrade_database(project_root=root)
-        assert result["revision"] == "0009_catalogacao_historica"
+        assert result["revision"] == "0010_associacoes_experimentais"
         assert snapshot(result["backup"]) == before
         assert result["backup"].stat().st_mode & 0o777 == 0o600
         after = snapshot(path)
         for table, records in before.items():
             if table == "alembic_version":
-                assert after[table] == [("0009_catalogacao_historica",)]
+                assert after[table] == [("0010_associacoes_experimentais",)]
             elif table == "produtos":
                 assert [row[:-1] for row in after[table]] == records
                 assert all(row[-1] == 0 for row in after[table])

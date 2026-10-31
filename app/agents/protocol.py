@@ -86,10 +86,20 @@ def _quantity(value):
 def _forecast_response(payload):
     _require(set(payload) == {"produto_id", "codigo_produto", "granularidade",
         "horizonte_dias", "data_corte", "cobertura_inicio", "cobertura_fim",
-        "total_previsto", "periodos", "modelo", "gerada_em", "versao", "execucao_id"})
+        "total_previsto", "periodos", "modelo", "gerada_em", "versao", "execucao_id"}
+        | ({"experimento"} if "experimento" in payload else set()))
     product = payload["produto_id"]
     _require(product is None or _integer(product))
     _require(payload["codigo_produto"] is None if product is None else _text(payload["codigo_produto"]))
+    if "experimento" in payload:
+        _experimental(payload["experimento"])
+        associations = payload["experimento"]["associacoes"]
+        if product is None:
+            _require(type(payload["modelo"]) is dict and set(payload["modelo"]) ==
+                     {item["codigo_produto"] for item in associations})
+        else:
+            _require(any(item["produto_id"] == product and item["codigo_produto"] == payload["codigo_produto"]
+                         for item in associations))
     _require(payload["granularidade"] in {"diaria", "semanal", "mensal"})
     _require(_integer(payload["horizonte_dias"]) and payload["horizonte_dias"] <= 366)
     cutoff = _date(payload["data_corte"])
@@ -140,6 +150,14 @@ def _keys(value, expected):
     _require(type(value) is dict and set(value) == set(expected))
 
 
+def _experimental(value):
+    from app.forecasting.experimental import validate_experimental_context
+    try:
+        validate_experimental_context(value)
+    except (ValueError, TypeError, KeyError):
+        raise ProtocolError("Contexto experimental inválido.") from None
+
+
 def _panel_code(value):
     return (_text(value, 64) and not any(
         char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value))
@@ -175,7 +193,16 @@ def _panel_request(payload):
 
 def _panel_response(payload):
     _keys(payload, {"execucao_id", "versao", "produtos", "selecao", "cobertura",
-                    "total_previsto", "periodos", "modelos", "avaliacoes", "atualizacao"})
+                    "total_previsto", "periodos", "modelos", "avaliacoes", "atualizacao"}
+                    | ({"experimento"} if "experimento" in payload else set()))
+    if "experimento" in payload:
+        _experimental(payload["experimento"])
+        _require(type(payload["produtos"]) is list and {item.get("codigo_produto") for item in payload["produtos"]}
+                 == {item["codigo_produto"] for item in payload["experimento"]["associacoes"]})
+        expected_products = {item["codigo_produto"]: item["produto_id"]
+                             for item in payload["experimento"]["associacoes"]}
+        _require(all(item.get("produto_id") == expected_products[item["codigo_produto"]]
+                     for item in payload["produtos"]))
     _require(type(payload["execucao_id"]) is str and re.fullmatch(
         r"previsao-[a-f0-9]{32}", payload["execucao_id"]) is not None)
     _require(payload["versao"] == "forecast-v1")

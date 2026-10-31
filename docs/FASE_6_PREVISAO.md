@@ -43,9 +43,15 @@ com `NOT_IMPLEMENTED`. A Fase 6 não adiciona uma tela de previsões.
 
 A execução exige `data/reports/revisao-decisoes-<id>.json` com status
 `revisado_com_recorte`, política `dia_fonte`, exportação completa confirmada e
-as seis colunas autorizadas. Confere a preparação aprovada na versão 2, os
+o schema autorizado da preparação: seis colunas na versão 2 ou sete na versão 3,
+com `nome_completo`. Confere a preparação aprovada e o pareamento entre versão,
+cabeçalho e colunas declaradas nos relatórios, os
 caminhos privados e os hashes dos datasets canônico e revisado. Não relê o CSV
 original. Alterações de dados após a revisão bloqueiam a execução.
+
+O nome comercial completo é metadado de identificação, preservado no relatório
+quando presente no dataset. Ele não altera os alvos, as quantidades ou os
+cálculos de previsão e não é usado para inferir associações automaticamente.
 
 O calendário legal é separado do calendário efetivo da fábrica. A versão
 `manaus-2021-2027-v1` cobre somente os anos explicitamente solicitados entre
@@ -117,6 +123,7 @@ em 22/10/2026, a configuração inicial utiliza a véspera:
 ```bash
 python -m scripts.forecast_history train \
   --review 'data/reports/revisao-decisoes-<id>.json' \
+  --experimental-selection 'data/reports/selecao-experimental-<id>.json' \
   --start 2022-01-01 \
   --cutoff 2026-10-21 \
   --horizon 28 \
@@ -127,8 +134,11 @@ python -m scripts.forecast_history train \
 
 `--horizon`, `--validation-days` e `--test-days` contam dias de calendário,
 incluindo os dias fechados, e aceitam de 1 a 366. `--folds` aceita de 1 a 10.
-`--code` é opcional e repetível, para selecionar códigos externos existentes
-no recorte; sua ausência avalia todos os produtos elegíveis. Omitir `--start`
+Após a adaptação experimental, exporte antes a seleção auditada com
+`flask --app app.app:create_app previsao exportar-selecao`. O argumento
+`--experimental-selection` é obrigatório para treinar pela CLI; seleção ausente
+não autoriza usar todo o histórico. `--code` é opcional e repetível, mas, quando
+informado, deve corresponder exatamente ao conjunto do snapshot. Omitir `--start`
 usaria o primeiro registro elegível disponível, portanto o comando inicial
 explicita a exclusão experimental de 2021.
 

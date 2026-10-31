@@ -10,6 +10,9 @@ class RevisaoAssociacaoHistorica(db.Model):
         db.CheckConstraint("length(codigo_produto) BETWEEN 1 AND 64", name="ck_revisao_codigo"),
         db.CheckConstraint("length(assinatura_produto) = 64 AND length(assinatura_historico) = 64",
                            name="ck_revisao_assinaturas"),
+        db.CheckConstraint("tipo_vinculo IN ('operacional', 'experimental')", name="ck_revisao_tipo_vinculo"),
+        db.CheckConstraint("selecionado_previsao IN (0, 1) AND (selecionado_previsao = 0 OR tipo_vinculo = 'experimental')",
+                           name="ck_revisao_selecao_experimental"),
     )
 
     produto_id = db.Column(db.Integer, db.ForeignKey("produtos.id"), primary_key=True)
@@ -19,6 +22,9 @@ class RevisaoAssociacaoHistorica(db.Model):
     operador = db.Column(db.String(100), nullable=False)
     motivo = db.Column(db.String(500), nullable=False)
     revisado_em = db.Column(db.DateTime, nullable=False, default=utc_now)
+    tipo_vinculo = db.Column(db.String(20), nullable=False, default="operacional", server_default="operacional")
+    selecionado_previsao = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
+    compatibilidade_json = db.Column(db.JSON(none_as_null=True), nullable=True)
 
 
 class OperacaoCatalogacao(db.Model):

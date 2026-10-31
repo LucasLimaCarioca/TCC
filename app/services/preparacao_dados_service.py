@@ -16,9 +16,11 @@ from zoneinfo import ZoneInfo
 
 REQUIRED_FIELDS = ("pvNro", "proCodCli", "proNomeunificado", "pvEmis", "pvQtd")
 OPTIONAL_FIELDS = ("gproNro", "gproNm", "pvPrcunt", "pvPrctot")
-OUTPUT_FIELDS = ("data", "codigo_produto", "codigo_grupo", "categoria", "quantidade", "numero_pedidos")
+LEGACY_OUTPUT_FIELDS = ("data", "codigo_produto", "codigo_grupo", "categoria", "quantidade", "numero_pedidos")
+OUTPUT_FIELDS = ("data", "codigo_produto", "nome_completo", "codigo_grupo", "categoria", "quantidade", "numero_pedidos")
+DATASET_SCHEMAS = {"2": LEGACY_OUTPUT_FIELDS, "3": OUTPUT_FIELDS}
 DATE_POLICIES = ("dia_fonte", "America/Manaus")
-PIPELINE_VERSION = "2"
+PIPELINE_VERSION = "3"
 
 
 class PreparationError(ValueError):
@@ -273,7 +275,8 @@ def prepare_history(root, source="data/pedido.csv", *, date_policy):
             # Não infere metadados de outro produto ou de outro dia.
             group = next(iter(daily_groups[key]), "")
             category = next(iter(daily_categories[key]), "")
-            writer.writerow((day, code, group, category, _number_text(quantity), len(orders[key])))
+            full_name = next(iter(product_names[code]))
+            writer.writerow((day, code, full_name, group, category, _number_text(quantity), len(orders[key])))
         dataset_text = output.getvalue()
         _write_private(dataset_path, dataset_text)
         report["status"] = "aprovado"

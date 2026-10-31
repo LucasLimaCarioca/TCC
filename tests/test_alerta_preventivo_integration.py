@@ -252,6 +252,15 @@ def test_nova_previsao_notifica_estoque_e_resolve_alerta(automatic_ready, runtim
     document = json.loads(review.read_text())
     document.update(sha256_canonico=digest, sha256_revisado=digest)
     review.write_text(json.dumps(document))
+    # A nova atualização usa uma seleção explicitamente confirmada do catálogo
+    # fictício, sem reaproveitar uma associação operacional como experimental.
+    from experimental_fixtures import selection_request
+    from app.services import catalogacao_service as catalog
+    with service.app.app_context():
+        item = db.session.get(Produto, product)
+        item.nome, item.categoria, item.sabor = "caixa de 10L - chocolate", "caixa de 10L", "chocolate"
+        db.session.commit()
+        catalog.executar_catalogacao(**selection_request(service, product))
     gateway = AgentGateway(runtime)
     job = gateway.atualizar_previsao("2026-01-10", 7).payload
     deadline = time.monotonic() + 15

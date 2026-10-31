@@ -14,11 +14,15 @@ import platform
 from uuid import uuid4
 
 from app.forecasting.aggregation import aggregate_forecasts
+from app.forecasting.baselines import naive, seasonal_naive
 from app.forecasting.calendar import ManausCalendar
 from app.forecasting.dataset import build_series
 from app.forecasting.errors import ForecastError
-from app.forecasting.evaluation import evaluate_product
-from app.services.preparacao_dados_service import OUTPUT_FIELDS, private_path, _write_private
+from app.forecasting.evaluation import evaluate_product, metrics
+from app.forecasting.experimental import validate_experimental_context
+from app.services.preparacao_dados_service import (
+    DATASET_SCHEMAS, LEGACY_OUTPUT_FIELDS, OUTPUT_FIELDS, private_path, _write_private,
+)
 
 
 ENGINE_VERSION = "forecast-v1"
@@ -67,7 +71,7 @@ def load_review(root, report_path, cutoff):
     review = _json(path)
     if (not isinstance(review, dict) or review.get("status") != "revisado_com_recorte"
             or review.get("politica_data") != "dia_fonte"
-            or review.get("colunas") != list(OUTPUT_FIELDS)
+            or review.get("colunas") not in [list(fields) for fields in DATASET_SCHEMAS.values()]
             or not isinstance(review.get("contexto"), dict)
             or review["contexto"].get("exportacao_completa") is not True):
         raise ForecastError("Exige revisão concluída, dia_fonte e exportação completa confirmada.")
@@ -76,9 +80,11 @@ def load_review(root, report_path, cutoff):
     preparation_path = _file(root, review["relatorio_preparacao"], "reports")
     preparation = _json(preparation_path)
     if (not isinstance(preparation, dict) or preparation.get("status") != "aprovado"
-            or preparation.get("versao_pipeline") != "2" or preparation.get("erros") != {}
+            or type(preparation.get("versao_pipeline")) is not str
+            or preparation.get("versao_pipeline") not in DATASET_SCHEMAS or preparation.get("erros") != {}
             or preparation.get("politica_data") != "dia_fonte"
-            or preparation.get("colunas_dataset") != list(OUTPUT_FIELDS)
+            or preparation.get("colunas_dataset") != list(DATASET_SCHEMAS[preparation["versao_pipeline"]])
+            or preparation.get("colunas_dataset") != review.get("colunas")
             or preparation.get("dataset") != review.get("dataset_canonico")
             or preparation.get("sha256_dataset") != review.get("sha256_canonico")):
         raise ForecastError("Revisão incompatível com o relatório da preparação.")
@@ -90,8 +96,8 @@ def load_review(root, report_path, cutoff):
     if sha256(content).hexdigest() != review.get("sha256_revisado"):
         raise ForecastError("O recorte revisado foi alterado após a aprovação.")
     reader = csv.DictReader(io.StringIO(content.decode("utf-8-sig"), newline=""), strict=True)
-    if tuple(reader.fieldnames or ()) != OUTPUT_FIELDS:
-        raise ForecastError("O recorte deve conter somente as seis colunas diárias autorizadas.")
+    if tuple(reader.fieldnames or ()) != DATASET_SCHEMAS[preparation["versao_pipeline"]]:
+        raise ForecastError("O recorte deve corresponder às colunas diárias da preparação aprovada.")
     rows = list(reader)
     if not rows:
         raise ForecastError("O recorte revisado não contém observações.")
@@ -166,6 +172,24 @@ def _summary(report):
                   score(comparison.get("baseline_mae", {}).get("seasonal_naive")),
                   ("sim" if comparison["strictly_better_than_both_baselines"] else "não") if tested else "não avaliado"]
         lines.append("| " + " | ".join(cell(value) for value in values) + " |")
+    if "experimento" in report:
+        lines += ["", "## Natureza experimental e seleção", "",
+                  "- As previsões e sua avaliação usam exclusivamente os códigos históricos selecionados.",
+                  "- O histórico de demanda é real, preparado e desidentificado; estoque e vendas operacionais são simulados.",
+                  "- Assinatura da seleção: " + report["experimento"]["assinatura"],
+                  "- Esta execução não comprova resultados de estoque ou vendas reais.",
+                  "", "## Avaliação independente após o corte", "",
+                  "Compara a previsão já emitida com observações revisadas posteriores ao corte. Não participa da escolha do modelo nem altera as métricas do teste final anterior ao corte.", ""]
+        for code, evaluation in report["avaliacao_pos_corte"].items():
+            if evaluation["status"] != "avaliado":
+                lines.append("- Código " + cell(code) + ": não avaliado — " + cell(evaluation["motivo"]))
+                continue
+            values = evaluation["modelos"]
+            selected = report["evaluations"][code]["selected_model"]
+            lines.append("- Código " + cell(code) + ": " + evaluation["inicio"] + " a " + evaluation["fim"]
+                + ", " + str(evaluation["dias_abertos"]) + " dias abertos; MAE do modelo "
+                + score(values[selected]["mae"]) + ", naive " + score(values["naive"]["mae"])
+                + ", sazonal " + score(values["seasonal_naive"]["mae"]) + ".")
     lines += ["", "## Interpretação e rastreabilidade", "",
               "- Dataset revisado: " + report["provenance"]["dataset"],
               "- Séries diárias usadas: " + report["series_file"],
@@ -177,9 +201,53 @@ def _summary(report):
     return "\n".join(lines) + "\n"
 
 
+def _post_cutoff_evaluation(rows, dataset, aggregation, evaluations, calendar, cutoff, horizon, provenance):
+    """Avaliação externa ao ajuste, limitada à cobertura aprovada da revisão.
+
+    Cada candidato e baseline usa somente a série truncada no corte. Os alvos
+    posteriores ficam isolados da validação, seleção e ajuste do modelo.
+    """
+    end = min(_day(provenance["review_reference"]), cutoff + timedelta(days=horizon))
+    codes = sorted(dataset["series"])
+    unavailable = {code: {"status": "nao_avaliado", "motivo":
+        "A revisão aprovada não contém cobertura completa de dias abertos posteriores ao corte."} for code in codes}
+    if end <= cutoff:
+        return unavailable
+    positions = [offset for offset in range((end - cutoff).days)
+                 if calendar.is_open(cutoff + timedelta(days=offset + 1))]
+    if not positions:
+        return unavailable
+    actual = build_series(rows, calendar, end, coverage_complete=True)["series"]
+    output = {}
+    for code in codes:
+        history = dataset["series"][code]
+        dates = [cutoff + timedelta(days=offset + 1) for offset in positions]
+        # A série está completa até a referência revisada: ausências em dias
+        # abertos seguem a mesma interpretação de zero aprovada na preparação.
+        observed = [float(actual[code].loc[day.isoformat()]) for day in dates]
+        selected = evaluations[code]["selected_model"]
+        estimates = [float(aggregation["products"][code]["diaria"][offset]["quantidade_prevista"])
+                     for offset in positions]
+        scored = {selected: metrics(observed, estimates)}
+        for name, baseline in (("naive", naive), ("seasonal_naive", seasonal_naive)):
+            forecast = baseline(history, horizon, calendar)
+            # Se o vencedor já é esse baseline, sua avaliação é calculada com
+            # a mesma previsão publicada em vez de substituir o valor por float.
+            if name != selected:
+                scored[name] = metrics(observed, [float(forecast.iloc[offset]) for offset in positions])
+        output[code] = {"status": "avaliado", "inicio": dates[0].isoformat(),
+            "fim": dates[-1].isoformat(), "dias_abertos": len(dates),
+            "horizonte_completo": end == cutoff + timedelta(days=horizon),
+            "modelos": scored, "modelo_selecionado": selected,
+            "supera_ambos_baselines": scored[selected]["mae"] < min(
+                scored["naive"]["mae"], scored["seasonal_naive"]["mae"])}
+    return output
+
+
 def run_forecast(project_root, review_path, *, cutoff, start=None, horizon=28,
                  test_days=14, validation_days=14, folds=3, codes=None,
-                 calendar_overrides=None, model_params=None, progress=None):
+                 calendar_overrides=None, model_params=None, progress=None,
+                 experimental_context=None):
     """Treina, avalia e publica um manifesto privado somente ao concluir tudo.
 
     Não escreve no SQLite, não inicializa agentes nem altera histórico/revisão.
@@ -193,6 +261,16 @@ def run_forecast(project_root, review_path, *, cutoff, start=None, horizon=28,
         folds = _integer(folds, 10)
         if start is not None and start > cutoff:
             raise ForecastError("O início do histórico deve ser anterior à data de corte.")
+        experimental = None
+        if experimental_context is not None:
+            try:
+                experimental = validate_experimental_context(experimental_context)
+                selected_codes = [item["codigo_produto"] for item in experimental["associacoes"]]
+                if codes is not None and (type(codes) not in (list, tuple) or set(codes) != set(selected_codes)):
+                    raise ValueError
+                codes = selected_codes
+            except (ValueError, TypeError):
+                raise ForecastError("Seleção experimental inválida ou divergente dos códigos solicitados.") from None
         rows, provenance = load_review(root, review_path, cutoff)
         requested_codes = None
         if codes is not None:
@@ -216,6 +294,8 @@ def run_forecast(project_root, review_path, *, cutoff, start=None, horizon=28,
         dataset = build_series(rows, calendar, cutoff, coverage_complete=True)
         if not dataset["series"]:
             raise ForecastError("Nenhum produto possui observações elegíveis para o calendário e corte.")
+        if experimental is not None and set(dataset["series"]) != set(selected_codes):
+            raise ForecastError("Todo código experimental selecionado deve ter observações elegíveis até o corte.")
         dataset["report"]["excluded_before_start"] = excluded_before_start
         dataset["report"]["excluded_not_selected"] = excluded_not_selected
         dataset["report"]["requested_codes"] = sorted(requested_codes) if requested_codes else None
@@ -261,6 +341,8 @@ def run_forecast(project_root, review_path, *, cutoff, start=None, horizon=28,
         result = {"version": ENGINE_VERSION, "run_id": run_id, "generated_at": created,
                   "cutoff": cutoff.isoformat(), "horizon_days": horizon,
                   "forecast": aggregation, "models": {code: item["selected_model"] for code, item in evaluations.items()}}
+        if experimental is not None:
+            result["experimento"] = experimental
         result_path = save_text(artifacts / "previsoes.json", _json_text(result))
         training = io.StringIO(newline="")
         writer = csv.writer(training, lineterminator="\n")
@@ -282,6 +364,13 @@ def run_forecast(project_root, review_path, *, cutoff, start=None, horizon=28,
                       "Projeções são condicionais ao calendário e ao horizonte publicados, com datas e parâmetros explícitos.",
                       "O geral soma quantidades comerciais heterogêneas; não representa litros, peso ou faturamento.",
                       "Agente XMPP e persistência em PrevisaoDemanda permanecem para a Fase 7."]}
+        if experimental is not None:
+            report["experimento"] = experimental
+            report["avaliacao_pos_corte"] = _post_cutoff_evaluation(
+                rows, dataset, aggregation, evaluations, calendar, cutoff, horizon, provenance)
+            report["limitations"] = report["limitations"][:-1] + [
+                "Estoque e vendas operacionais simulados não medem o desempenho operacional real da fábrica.",
+                "Compatibilidade comercial, embalagem e unidade dependem da revisão explícita registrada no catálogo."]
         report_path = save_text(reports / (run_id + ".json"), _json_text(report))
         summary_path = save_text(reports / (run_id + ".md"), _summary(report))
         code_root = Path(__file__).resolve().parents[2]
@@ -295,6 +384,8 @@ def run_forecast(project_root, review_path, *, cutoff, start=None, horizon=28,
                     "source_sha256": {path.relative_to(code_root).as_posix(): sha256(path.read_bytes()).hexdigest()
                                       for path in sorted(code_files) if path.is_file()},
                     "python": platform.python_version(), "files_sha256": file_hashes}
+        if experimental is not None:
+            manifest["experimento"] = experimental
         # Este é o único indicador de publicação: gravado por último.
         manifest_path = private_path(root, artifacts / "manifest.json")
         _write_private(manifest_path, _json_text(manifest))
@@ -326,14 +417,34 @@ def consultar_previsao(project_root, manifest_path, *, codigo_produto=None, gran
         data = _json(forecast_path)
         if data.get("version") != ENGINE_VERSION or data.get("run_id") != manifest.get("run_id"):
             raise ForecastError("Previsão incompatível com o manifesto.")
+        experimental = None
+        if "experimento" in data or "experimento" in manifest:
+            try:
+                experimental = validate_experimental_context(data.get("experimento"), codes=data["models"])
+                if (manifest.get("experimento") != experimental
+                        or set(data["forecast"]["products"]) != set(data["models"])):
+                    raise ValueError
+                report_path = _file(root, manifest["report_file"], "reports")
+                report_content = report_path.read_bytes()
+                if sha256(report_content).hexdigest() != manifest["files_sha256"].get(report_path.relative_to(root).as_posix()):
+                    raise ValueError
+                report = json.loads(report_content)
+                if (report.get("experimento") != experimental
+                        or set(report["dataset"]["products"]) != set(data["models"])):
+                    raise ValueError
+            except (ValueError, KeyError, TypeError):
+                raise ForecastError("A seleção experimental diverge dos artefatos publicados.") from None
         selected = data["forecast"]["overall"] if codigo_produto is None else data["forecast"]["products"].get(codigo_produto)
         if selected is None:
             raise ForecastError("Código externo ausente desta previsão.")
-        return {"codigo_produto": codigo_produto, "granularidade": granularidade,
+        response = {"codigo_produto": codigo_produto, "granularidade": granularidade,
                 "periodos": selected[granularidade], "total_previsto": selected["total_previsto"],
                 "gerada_em": data["generated_at"], "data_corte": data["cutoff"],
                 "horizonte_dias": data["horizon_days"], "versao": ENGINE_VERSION,
                 "modelo": data["models"] if codigo_produto is None else data["models"][codigo_produto]}
+        if experimental is not None:
+            response["experimento"] = experimental
+        return response
     except ForecastError:
         raise
     except Exception:

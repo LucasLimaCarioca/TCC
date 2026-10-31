@@ -11,10 +11,11 @@ from app.services import previsao_service
 from test_agent_runtime import runtime, free_ports
 from test_previsao_service import configured
 from test_forecasting_service import project
+from experimental_fixtures import experimental_configured
 
 
-def test_modelo_publicado_responde_por_xmpp_e_recalcula_sem_duplicar(configured, runtime, monkeypatch):
-    service, paths, (product, _, _) = configured
+def test_modelo_publicado_responde_por_xmpp_e_recalcula_sem_duplicar(experimental_configured, runtime, monkeypatch):
+    service, paths, (product, _, _) = experimental_configured
     service.carregar(paths["manifest"])
     gateway = AgentGateway(runtime)
     runtime.call(lambda: runtime.agents["previsao"].aguardar_inicializacao())

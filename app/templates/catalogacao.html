@@ -2,16 +2,17 @@
 {% block content %}
 <main class="page-container catalogue-page" id="catalogacao-app">
     <section class="content-panel">
-        <h1>Catalogação do histórico</h1>
+        <h1>Catálogo e seleção experimental</h1>
+        <p><strong>Histórico real · estoque e vendas operacionais simulados.</strong> O experimento usa somente os códigos selecionados e associados explicitamente a produtos fictícios comercialmente equivalentes.</p>
         <p>O código histórico identifica observações de vendas. O ID interno identifica um cadastro de estoque. Eles não são equivalentes.</p>
         <p>Confira a identidade comercial antes de associar ou revisar. Categorias diferentes são um indício para conferência, não uma prova de erro. Vínculos pendentes não habilitam previsões por produto para os alertas preventivos.</p>
-        <p>Códigos sem nome, preço ou situação comercial confirmados devem continuar pendentes. Esta tela não altera as vendas históricas nem as previsões publicadas.</p>
+        <p>O fluxo experimental utiliza apenas os 11 produtos fictícios já definidos. Confirme identidade comercial, embalagem e unidade de quantidade; sem informações suficientes, mantenha o código fora da seleção. Os códigos históricos, suas vendas e as previsões publicadas são preservados.</p>
         <button type="button" id="catalogacao-atualizar">Atualizar listagem</button>
         <p id="catalogacao-status" role="status" aria-live="polite">Carregando os códigos históricos…</p>
         <p id="catalogacao-erro" class="stock-form-feedback stock-feedback-error" role="alert" tabindex="-1" hidden></p>
         <div class="stock-table-wrap" role="region" aria-label="Códigos históricos e vínculos" tabindex="0">
             <table class="data-table">
-                <thead><tr><th>Código histórico</th><th>Grupo e categoria históricos</th><th>Cadastro operacional</th><th>Revisão</th><th>Conferência</th><th>Ação</th></tr></thead>
+                <thead><tr><th>Código histórico</th><th>Grupo e categoria históricos</th><th>Cadastro associado</th><th>Revisão e finalidade</th><th>Conferência</th><th>Ação</th></tr></thead>
                 <tbody id="catalogacao-codigos"></tbody>
             </table>
         </div>
@@ -19,10 +20,14 @@
     <section class="content-panel">
         <h2>Catalogar ou revisar um código</h2>
         <form id="catalogacao-form" class="stock-form" method="post" action="/api/catalogacao/operacoes">
+            <label>Finalidade do vínculo <select name="tipo_vinculo" required>
+                <option value="experimental" selected>Experimental — histórico real, operação simulada</option>
+                <option value="operacional">Operacional — manutenção explícita do catálogo legado</option>
+            </select></label>
             <label>Código histórico <select name="codigo_produto" required></select></label>
             <label>Operação <select name="acao" required>
                 <option value="associar">Associar a um cadastro existente</option>
-                <option value="criar">Cadastrar um produto operacional</option>
+                <option value="criar" id="catalogacao-acao-criar">Cadastrar um produto operacional (modo legado)</option>
                 <option value="revisar">Confirmar a revisão do vínculo atual</option>
                 <option value="alterar">Transferir o vínculo para outro cadastro</option>
                 <option value="desassociar">Retirar o vínculo atual</option>
@@ -31,6 +36,20 @@
             <label id="catalogacao-alvo">Cadastro operacional de destino (ID interno)
                 <select name="produto_id"></select>
             </label>
+            <fieldset id="catalogacao-experimental" class="catalogue-fields">
+                <legend>Equivalência experimental conferida pelo operador</legend>
+                <p>Descreva o produto histórico com base em uma referência comercial conferida. Grupo, categoria e coincidência numérica de IDs não comprovam equivalência. Nenhuma conversão de unidades será aplicada.</p>
+                <label>Identificação comercial do produto histórico <input name="descricao_historica" maxlength="500" required></label>
+                <label>Embalagem histórica conferida <input name="embalagem_historica" maxlength="100" required></label>
+                <label>Unidade da quantidade histórica <input name="unidade_historica" maxlength="64" required></label>
+                <label>Unidade da quantidade simulada <input name="unidade_simulada" maxlength="64" required></label>
+                <label class="catalogue-confirmation"><input name="produto_ficticio_confirmado" type="checkbox" required> Confirmo que o destino é um dos 11 produtos fictícios definidos para o experimento.</label>
+                <label class="catalogue-confirmation"><input name="identidade_confirmada" type="checkbox" required> Conferi a compatibilidade da identidade comercial, incluindo sabor ou variação.</label>
+                <label class="catalogue-confirmation"><input name="embalagem_confirmada" type="checkbox" required> Conferi a compatibilidade da embalagem e do tamanho comercial.</label>
+                <label class="catalogue-confirmation"><input name="unidade_confirmada" type="checkbox" required> As quantidades histórica e simulada usam a mesma unidade, sem conversão.</label>
+                <label class="catalogue-confirmation"><input name="selecionado_previsao" type="checkbox"> Incluir esta associação experimental no próximo treinamento e na previsão geral.</label>
+                <p>Desmarcar retira o código das próximas execuções, preservando o vínculo e as execuções anteriores. Qualquer alteração da seleção exige uma nova previsão identificável antes de utilizar o novo conjunto.</p>
+            </fieldset>
             <fieldset id="catalogacao-novo" class="catalogue-fields" hidden disabled>
                 <legend>Dados comerciais confirmados do novo produto</legend>
                 <label>Nome completo <input name="nome" maxlength="100" required></label>
@@ -44,7 +63,7 @@
                 </select></label>
                 <label>Descrição (opcional) <input name="descricao" maxlength="255"></label>
             </fieldset>
-            <p>O estoque inicial positivo gera uma entrada auditável, na mesma transação do cadastro. Um produto inativo não é disponibilizado para vendas. Nenhum valor comercial é preenchido por inferência.</p>
+            <p id="catalogacao-criacao-ajuda" hidden>O cadastro operacional legado exige dados comerciais explícitos e entrada inicial auditável. O fluxo experimental não cria produtos.</p>
             <label>Operador responsável <input name="operador" maxlength="100" autocomplete="off" required></label>
             <label>Motivo e referência da conferência <input name="motivo" maxlength="500" required></label>
             <label class="catalogue-confirmation"><input name="confirmar" type="checkbox" required> Conferi o código textual e os dados comerciais acima e confirmo explicitamente esta operação.</label>

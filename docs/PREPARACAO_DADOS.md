@@ -31,7 +31,7 @@ Os nomes de coluna são os do CSV, com maiúsculas e minúsculas preservadas.
 |---|---|
 | `pvNro` | Obrigatório, texto; usado apenas em memória para contar pedidos distintos |
 | `proCodCli` | Obrigatório, texto; identidade do produto, preserva zeros à esquerda |
-| `proNomeunificado` | Obrigatório, texto; verifica consistência do cadastro, não é exportado |
+| `proNomeunificado` | Obrigatório, texto; verifica consistência por código e é exportado como `nome_completo` |
 | `pvEmis` | Obrigatório, timestamp ISO 8601 com fuso explícito |
 | `pvQtd` | Obrigatório, decimal finito não negativo |
 | `gproNro`, `gproNm` | Opcionais; exportados como `codigo_grupo` e `categoria`, com validação de consistência |
@@ -70,12 +70,14 @@ Cada execução recebe um identificador próprio e não sobrescreve resultados:
 - `data/processed/preparacao-<id>/demanda_diaria.csv`;
 - `data/reports/preparacao-<id>.json`.
 
-A versão 2 do pipeline inclui o grupo comercial. O CSV possui seis colunas:
+A versão 3 do pipeline conserva o nome comercial completo da fonte. O CSV
+possui sete colunas, nesta ordem:
 
 | Coluna | Conteúdo |
 |---|---|
 | `data` | Dia de emissão no formato YYYY-MM-DD |
 | `codigo_produto` | Código textual, com zeros à esquerda |
+| `nome_completo` | Texto de `proNomeunificado`, removendo somente espaços externos |
 | `codigo_grupo` | `gproNro` como texto, preservando zeros à esquerda |
 | `categoria` | Nome comercial do grupo, recebido em `gproNm` |
 | `quantidade` | Soma decimal das quantidades do produto naquele dia |
@@ -86,6 +88,18 @@ metadados complementares, sem dividir ou somar novamente a demanda. Campos de
 grupo ausentes continuam opcionais e ficam vazios na saída; quando houver um
 único valor preenchido nas linhas do mesmo produto/dia, esse valor é usado.
 Não há preenchimento a partir de outros dias ou produtos.
+
+`nome_completo` conserva a descrição comercial integral, inclusive embalagem e
+variação presentes na fonte, sem abreviar ou deduzir informações da categoria.
+Ele não substitui o código externo, não cria produtos operacionais e não confirma
+associações automaticamente. Um mesmo código com nomes contraditórios bloqueia
+a saída; um nome obrigatório ausente também bloqueia, sem inventar identificação.
+
+A versão 2, com seis colunas e sem `nome_completo`, continua identificável por
+seu contrato legado. Os leitores preservam essa compatibilidade sem reescrever
+datasets, revisões ou artefatos anteriores. Para obter a nova coluna de uma
+fonte já processada, execute novamente a preparação: será gerado um novo caminho
+privado, preservando as saídas existentes.
 
 Nomes contraditórios para a categoria de um produto ou para o mesmo código de
 grupo bloqueiam o dataset, inclusive entre produtos diferentes. Os conflitos
@@ -129,10 +143,11 @@ cliente ou vendedor nesta fase, portanto não se criam pseudônimos nem chaves
 HMAC. Caso essa necessidade surja, ela exige decisão explícita e implementação
 separada com HMAC-SHA256 e chave fora do repositório.
 
-O schema permite apenas os campos definidos, incluindo o nome comercial da
-categoria. Isso depende do significado correto das colunas de origem: não é um
+O schema permite apenas os campos definidos, incluindo o nome comercial completo
+do produto e o nome da categoria. Isso depende do significado correto das colunas de origem: não é um
 detector genérico de informações pessoais inseridas indevidamente em códigos
-ou nomes de categorias.
+ou nomes comerciais. O novo campo continua sendo dado restrito e não autoriza
+publicar qualquer dataset, amostra ou relatório real.
 
 ## Validação e manutenção
 

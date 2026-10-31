@@ -20,6 +20,7 @@ from app.forecasting.errors import ForecastError
 DAILY_FIELDS = frozenset({
     "data", "codigo_produto", "codigo_grupo", "categoria", "quantidade", "numero_pedidos",
 })
+NAMED_DAILY_FIELDS = DAILY_FIELDS | {"nome_completo"}
 
 
 def _day(value):
@@ -107,13 +108,14 @@ def build_series(rows: Iterable[dict], calendar, cutoff: date, *, coverage_compl
         raise ForecastError("Informe data de corte e completude do histórico válidas.")
     if not callable(getattr(calendar, "is_open", None)):
         raise ForecastError("Informe um calendário operacional válido.")
-    groups, categories = defaultdict(set), defaultdict(set)
+    groups, categories, names = defaultdict(set), defaultdict(set), defaultdict(set)
     group_names = defaultdict(set)
     all_codes, seen = set(), set()
     eligible = defaultdict(dict)
     excluded_quantities = {"future": [], "closed": []}
     excluded_counts = {"future": 0, "closed": 0}
     input_rows = 0
+    schema = None
 
     def is_open(day):
         result = calendar.is_open(day)
@@ -123,12 +125,21 @@ def build_series(rows: Iterable[dict], calendar, cutoff: date, *, coverage_compl
 
     for row in rows:
         input_rows += 1
-        if not isinstance(row, Mapping) or set(row) != DAILY_FIELDS:
-            raise ForecastError("O dataset deve conter somente as seis colunas diárias autorizadas.")
+        if not isinstance(row, Mapping) or set(row) not in (DAILY_FIELDS, NAMED_DAILY_FIELDS):
+            raise ForecastError("O dataset deve conter somente as seis colunas legadas ou as sete colunas com nome completo.")
+        fields = frozenset(row)
+        if schema is not None and fields != schema:
+            raise ForecastError("O dataset deve usar o mesmo schema diário em todas as observações.")
+        schema = fields
         day = _day(row["data"])
         code = _text(row["codigo_produto"], 64, required=True)
         group = _text(row["codigo_grupo"], 64)
         category = _text(row["categoria"], 100)
+        if schema == NAMED_DAILY_FIELDS:
+            name = row["nome_completo"]
+            if type(name) is not str or not name or name != name.strip():
+                raise ForecastError("O dataset contém nome completo de produto inválido.")
+            names[code].add(name)
         quantity, numeric = _quantity(row["quantidade"])
         _orders(row["numero_pedidos"])
         if (code, day) in seen:
@@ -151,7 +162,7 @@ def build_series(rows: Iterable[dict], calendar, cutoff: date, *, coverage_compl
         excluded_counts[reason] += 1
         excluded_quantities[reason].append(quantity)
 
-    if any(len(values) > 1 for mapping in (groups, categories, group_names) for values in mapping.values()):
+    if any(len(values) > 1 for mapping in (groups, categories, group_names, names) for values in mapping.values()):
         raise ForecastError("O dataset contém metadados comerciais inconsistentes.")
 
     series, products = {}, {}
@@ -182,6 +193,8 @@ def build_series(rows: Iterable[dict], calendar, cutoff: date, *, coverage_compl
             "series_end": cutoff.isoformat(), "observed_days": len(observations),
             "closed_days_zero_filled": closed_days, "open_days_zero_filled": open_gaps,
         }
+        if schema == NAMED_DAILY_FIELDS:
+            products[code]["nome_completo"] = next(iter(names[code]))
     report = {
         "input_rows": input_rows,
         "eligible_rows": sum(len(observations) for observations in eligible.values()),

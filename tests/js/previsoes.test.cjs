@@ -134,6 +134,7 @@ async function harness(value, {width = 900, response = null} = {}) {
         return elements.get(id);
     };
     get("previsoes-app").dataset = {api: "/api/previsoes", updateApi: "/api/previsoes/atualizar", jobApi: "/api/previsoes/tarefas/"};
+    get("previsao-natureza").hidden = true;
     const filters = get("previsao-filtros");
     filters.elements = controls({codigo_produto: "", granularidade: "diaria", data_inicio: "", data_fim: ""});
     filters.reportValidity = () => filters.elements.every((input) => input.reportValidity());
@@ -410,5 +411,73 @@ test("falha do recálculo mantém a publicação e os valores arredondados anter
     assert.equal(ui.get("previsao-total").textContent, "5");
     assert.match(ui.get("previsao-tarefa-status").textContent, /publicação anterior foi preservada/);
     assert.equal(ui.get("previsao-tarefa-erro").textContent, "Falha fictícia do recálculo.");
+});
+
+function experimentalPayload() {
+    const data = payload(["1.5", "2.5"]);
+    data.produtos[1].produto_id = 43;
+    data.produtos[1].nome = "Outro produto fictício";
+    // Snapshot inteiramente fictício; a assinatura corresponde a estes campos.
+    data.experimento = {versao: 1, natureza: "experimental", origem_historico: "real", estoque: "simulado",
+        vendas_operacionais: "simuladas", assinatura: "497bc9332775054ae982995be7188af22ab358b07234b6badb85e652d28270ea",
+        associacoes: [{produto_id: 42, codigo_produto: "00042", versao_revisao: "a".repeat(64)},
+            {produto_id: 43, codigo_produto: "00043", versao_revisao: "b".repeat(64)}]};
+    return data;
+}
+
+test("painel experimental identifica histórico real, operação simulada e assinatura da seleção", async () => {
+    const data = deepFreeze(experimentalPayload());
+    const before = JSON.stringify(data);
+    const ui = await harness(data);
+    const nature = ui.get("previsao-natureza");
+    assert.equal(nature.hidden, false);
+    assert.match(nature.textContent, /histórico real preparado/);
+    assert.match(nature.textContent, /estoque e vendas operacionais simulados/);
+    assert.ok(nature.textContent.includes(data.experimento.assinatura));
+    assert.equal(ui.get("previsao-total").textContent, "5");
+    assert.equal(ui.get("previsao-painel").hidden, false);
+    assert.equal(JSON.stringify(data), before);
+});
+
+test("publicação legada fica identificada como anterior à seleção experimental", async () => {
+    const ui = await harness(payload());
+    const nature = ui.get("previsao-natureza");
+    assert.equal(nature.hidden, false);
+    assert.match(nature.textContent, /Publicação anterior sem seleção experimental/);
+    assert.match(nature.textContent, /referência/);
+    assert.match(nature.textContent, /novas atualizações usam somente associações experimentais selecionadas/);
+    assert.doesNotMatch(nature.textContent, /^Experimento:/);
+});
+
+for (const code of ["SELECTION_CHANGED", "EXPERIMENTAL_RUN_REQUIRED", "PRODUCT_NOT_SELECTED"]) {
+    test(code + " esconde o gráfico anterior e impede redesenhá-lo após mudar a seleção", async () => {
+        const data = experimentalPayload();
+        const ui = await harness(data, {response: async (_url, _options, count) => count === 1
+            ? {status: 200, body: data} : {status: 409, body: {code, erro: "Seleção fictícia exige nova publicação."}}});
+        assert.equal(ui.get("previsao-painel").hidden, false);
+        assert.equal(ui.get("previsao-total").textContent, "5");
+        await ui.fire("previsao-filtros", "change");
+        assert.equal(ui.get("previsao-painel").hidden, true);
+        assert.equal(ui.get("previsao-erro").hidden, false);
+        assert.equal(ui.get("previsao-erro").textContent, "Seleção fictícia exige nova publicação.");
+        assert.equal(ui.get("previsao-status").textContent, "Não foi possível carregar uma previsão.");
+        assert.equal(ui.get("previsao-anterior").hidden, true);
+        const hiddenChart = ui.get("previsao-grafico").children;
+        ui.wrapper.clientWidth = 320;
+        ui.windowEvents.resize();
+        assert.strictEqual(ui.get("previsao-grafico").children, hiddenChart);
+        assert.equal(ui.calls.length, 2);
+    });
+}
+
+test("falha transitória de consulta conserva a última publicação sem confundi-la com nova seleção", async () => {
+    const data = experimentalPayload();
+    const ui = await harness(data, {response: async (_url, _options, count) => count === 1
+        ? {status: 200, body: data} : {status: 503, body: {code: "FORECAST_UNAVAILABLE", erro: "Falha fictícia transitória."}}});
+    await ui.fire("previsao-filtros", "change");
+    assert.equal(ui.get("previsao-painel").hidden, false);
+    assert.match(ui.get("previsao-status").textContent, /consulta anterior continua exibida/);
+    assert.equal(ui.get("previsao-total").textContent, "5");
+    assert.ok(ui.get("previsao-natureza").textContent.includes(data.experimento.assinatura));
 });
 

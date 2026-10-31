@@ -180,13 +180,33 @@ def consultar_produto(produto_id):
                 "estoque_minimo": produto.estoque_minimo}
 
 
-def conferir_associacao(produto_id, codigo_produto):
+def conferir_associacao(produto_id, codigo_produto, execucao_id=None, experimento=None):
     """Revalida o vínculo depois do RPC, sem efeitos colaterais."""
     from app.services.catalogacao_service import associacao_revisada
     with Session(db.engine) as session:
         produto = _item(session, "produto", produto_id)
-        return {"confirmada": produto.codigo_externo == codigo_produto
-                and associacao_revisada(session, produto)}
+        if produto.codigo_externo != codigo_produto or not associacao_revisada(session, produto):
+            return {"confirmada": False}
+        from app.models.catalogacao_historica import RevisaoAssociacaoHistorica
+        review = session.get(RevisaoAssociacaoHistorica, produto.id)
+        from app.models.previsao_execucao import PrevisaoExecucao
+        from app.services.experimento_previsao_service import validar_publicacao_experimental, ExperimentoError
+        execution = session.scalar(select(PrevisaoExecucao).where(PrevisaoExecucao.ativa.is_(True)))
+        try:
+            # A seleção pode ter mudado para outro produto enquanto o RPC viajava.
+            validar_publicacao_experimental(session, execution.resultado_json if execution else {}, produto)
+        except ExperimentoError as error:
+            return {"confirmada": False, "code": error.code, "mensagem": str(error)}
+        if review.tipo_vinculo == "experimental" or experimento is not None:
+            if (execution is None or execution.id != execucao_id
+                    or execution.resultado_json.get("experimento") != experimento):
+                return {"confirmada": False, "code": "SELECTION_CHANGED",
+                        "mensagem": "A publicação não representa a seleção experimental atual. Atualize a previsão."}
+            try:
+                validar_publicacao_experimental(session, execution.resultado_json, produto)
+            except ExperimentoError as error:
+                return {"confirmada": False, "code": error.code, "mensagem": str(error)}
+        return {"confirmada": True}
 
 
 def catalogar_historico(**dados):
@@ -326,14 +346,29 @@ def visao_estoque():
         movements = session.scalars(select(MovimentacaoEstoque).order_by(MovimentacaoEstoque.id.desc()).limit(100)).all()
         from app.models.previsao_execucao import PrevisaoExecucao
         from app.services.alerta_preventivo_service import estado_alerta_preventivo
-        active_run = session.scalar(select(PrevisaoExecucao.id).where(PrevisaoExecucao.ativa.is_(True)))
+        active_execution = session.scalar(select(PrevisaoExecucao).where(PrevisaoExecucao.ativa.is_(True)))
+        active_run = active_execution.id if active_execution else None
         from app.services.catalogacao_service import associacao_revisada
+        from app.services.experimento_previsao_service import validar_publicacao_experimental, ExperimentoError
+        from app.models.catalogacao_historica import RevisaoAssociacaoHistorica
+
+        def confirmed(product):
+            if not associacao_revisada(session, product):
+                return False
+            try:
+                validar_publicacao_experimental(session, active_execution.resultado_json if active_execution else {}, product)
+                return True
+            except ExperimentoError:
+                return False
+
         evaluations = {alert.id: estado_alerta_preventivo(alert, alert.produto, active_run,
-                        associacao_confirmada=associacao_revisada(session, alert.produto))
+                        associacao_confirmada=confirmed(alert.produto))
                        for alert in alerts if alert.tipo_alerta == "risco_futuro"}
+        reviews = {review.produto_id: review for review in session.scalars(select(RevisaoAssociacaoHistorica)).all()}
         return {
             "produtos": [{"produto_id": p.id, "nome": p.nome, "categoria": p.categoria, "sabor": p.sabor,
-                          "quantidade_disponivel": p.quantidade_disponivel, "estoque_minimo": p.estoque_minimo} for p in products],
+                          "quantidade_disponivel": p.quantidade_disponivel, "estoque_minimo": p.estoque_minimo,
+                          "tipo_vinculo": reviews[p.id].tipo_vinculo if p.id in reviews else None} for p in products],
             "materias_primas": [{"id": m.id, "codigo": m.codigo, "nome": m.nome, "unidade_medida": m.unidade_medida,
                                 "quantidade_disponivel": str(m.quantidade_disponivel), "estoque_minimo": str(m.estoque_minimo)} for m in materials],
             "alertas": [{"id": a.id, "tipo_item": a.tipo_item, "item_id": a.produto_id or a.materia_prima_id,

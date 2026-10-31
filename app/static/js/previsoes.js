@@ -267,6 +267,13 @@
         text("previsao-modelos", "Modelos selecionados: " + models.join("; ") + ".");
     }
     function render(data) {
+        const provenance = byId("previsao-natureza");
+        if (provenance) {
+            provenance.hidden = false;
+            provenance.textContent = data.experimento
+                ? "Experimento: previsão baseada em histórico real preparado; estoque e vendas operacionais simulados. Seleção " + data.experimento.assinatura + "."
+                : "Publicação anterior sem seleção experimental. Preserve-a como referência; novas atualizações usam somente associações experimentais selecionadas.";
+        }
         const selected = data.selecao.codigo_produto || "";
         const product = data.produtos.find((item) => item.codigo_produto === selected);
         fillProducts(data.produtos, selected);
@@ -329,6 +336,10 @@
             text("previsao-status", data.periodos.length ? "Previsão publicada carregada." : "Consulta concluída sem períodos disponíveis.");
         } catch (error) {
             if (version !== queryVersion || error.name === "AbortError") return;
+            if (["SELECTION_CHANGED", "EXPERIMENTAL_RUN_REQUIRED", "PRODUCT_NOT_SELECTED"].includes(error.code)) {
+                currentData = null;
+                byId("previsao-painel").hidden = true;
+            }
             notice("previsao-erro", error.message);
             text("previsao-status", currentData ? "A consulta anterior continua exibida. Os filtros novos ainda não foram aplicados." : "Não foi possível carregar uma previsão.");
             if (error.code === "MODEL_UNAVAILABLE" && !currentData) {

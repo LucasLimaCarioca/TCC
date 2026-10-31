@@ -330,6 +330,12 @@ def test_http_xmpp_real_consulta_e_atualiza_sem_bloquear_publicacao(configured, 
     assert before.status_code == 200
     assert before.get_json()["selecao"]["codigo_produto"] == "00220"
     assert next(item for item in before.get_json()["produtos"] if item["codigo_produto"] == "00220")["produto_id"] is None
+    # A publicação legada continua consultável por código. A nova atualização
+    # parte de uma seleção experimental explicitamente confirmada e publicada.
+    from experimental_fixtures import prepare_experimental_configured
+    service, paths, _ = prepare_experimental_configured(configured)
+    before = client.get("/api/previsoes")
+    assert before.status_code == 200 and before.get_json()["experimento"]["estoque"] == "simulado"
     old_run = before.get_json()["execucao_id"]
     entered, release = Event(), Event()
     worker_threads = []

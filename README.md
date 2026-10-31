@@ -56,6 +56,12 @@ somente na apresentação, com datas adaptativas no gráfico. Consulte as
 [correções da validação manual](docs/CORRECOES_VALIDACAO_MANUAL.md) para as regras
 de arredondamento, transações, identificação histórica e validação.
 
+O experimento atual preserva os 11 produtos fictícios e associa somente os
+códigos de histórico real cuja equivalência comercial, embalagem e unidade
+foram confirmadas pelo operador. A seleção experimental determina os códigos
+das novas execuções e da previsão geral; estoque e vendas operacionais continuam
+simulados. Consulte [seleção experimental](docs/SELECAO_EXPERIMENTAL.md).
+
 ## Arquitetura
 
 
@@ -546,11 +552,18 @@ Ela identifica códigos sem associação, vínculos pendentes, possíveis
 inconsistências e revisões realizadas pelo operador. Diferenças de categoria
 são indícios para conferência humana, não prova de que um vínculo está errado.
 
-Um código livre pode ser associado a um produto existente ou originar um novo
-cadastro com os dados comerciais informados. Nome, categoria, sabor, preço,
-estoque inicial e mínimo são obrigatórios; a ativação é explícita. Não são
-inventados dados, criados produtos ativos em lote ou deduzidos códigos a partir
-dos IDs internos. Os zeros à esquerda são preservados.
+O modo **experimental** usa apenas os 11 produtos fictícios existentes. A
+associação exige comprovação declarada de identidade comercial, embalagem e
+unidade de quantidade compatíveis. O operador pode incluir ou retirar cada
+vínculo da seleção de previsão, com confirmação e auditoria. Códigos sem dados
+suficientes continuam pendentes. Esse fluxo não cria produtos nem altera preços,
+saldos ou quantidades históricas; os zeros à esquerda são preservados.
+
+O modo operacional legado permanece separado e identificado para manutenção de
+vínculos anteriores. Seus cadastros não são incluídos automaticamente na seleção
+experimental, nem uma coincidência de ID interno e código comercial autoriza
+uma associação. A marca experimental qualifica o vínculo auditado; não transforma
+histórico real em venda simulada nem substitui sua identidade textual.
 
 Revisar, associar, alterar, desassociar e reverter vínculos exige confirmação,
 identificação do operador e motivo. A auditoria mantém os estados anterior e
@@ -558,13 +571,18 @@ posterior. A reversão trata somente vínculo e revisão: não apaga produtos,
 vendas, histórico, saldos ou movimentações iniciais. Consulte
 [o guia desta rodada](docs/NOVA_VALIDACAO_CATALOGACAO.md) para regras,
 transações, migração e pendências comerciais.
+As regras da seleção e sua rastreabilidade nas execuções estão em
+[SELECAO_EXPERIMENTAL.md](docs/SELECAO_EXPERIMENTAL.md).
 
 ### Previsões de demanda
 
 A rota `/previsoes` apresenta a publicação do Agente de Previsão, com visão
 geral ou código histórico, filtros de período, agrupamentos diário/semanal/mensal,
 gráfico e tabela. Modelos e métricas são exibidos por produto com seus baselines.
-Códigos sem associação ao catálogo continuam disponíveis para consulta.
+Nas novas execuções experimentais, treinamento e visão geral usam exclusivamente
+os códigos das associações selecionadas e válidas. Mudar a seleção gera uma nova
+execução identificável e preserva as anteriores. Publicações legadas continuam
+identificadas como anteriores ao recorte experimental, sem reescrever artefatos.
 Um código associado mostra o nome do catálogo; um código sem descrição informa
 essa ausência e identifica a categoria separadamente. A situação de revisão do
 vínculo permite distinguir inspeção histórica de uso no estoque. Nenhum vínculo
@@ -827,11 +845,14 @@ de emissão conforme acordado:
 python -m scripts.prepare_history --input data/pedido.csv --date-policy dia_fonte
 ```
 
-O comando gera um dataset de demanda com `codigo_grupo` e `categoria`, além
+O comando gera um dataset de demanda com `nome_completo` (texto integral de
+`proNomeunificado`), `codigo_grupo` e `categoria`, além
 de data, código do produto, quantidade e número de pedidos, e um relatório local
 de qualidade em pastas ignoradas, sem modificar o original. Não grava clientes, vendedores,
 nomes pessoais ou identificadores de pedidos na saída. Dados inválidos bloqueiam
 a liberação do dataset e exigem revisão pelo relatório local.
+Novas preparações usam o schema versão 3, com sete colunas; os leitores mantêm
+compatibilidade com os datasets anteriores de seis colunas, sem regravá-los.
 Veja o [guia de preparação dos dados](docs/PREPARACAO_DADOS.md).
 
 ## Estado atual do protótipo
@@ -883,6 +904,7 @@ Funcionalidades já implementadas:
 - quantidade inicial opcional de matéria-prima, com entrada auditável na mesma transação;
 - controles de uma unidade que preservam as frações das matérias-primas;
 - catalogação histórica explícita, com revisão de vínculos e auditoria reversível;
+- seleção experimental de códigos reais comercialmente equivalentes aos produtos fictícios;
 - banco de demonstração separado, com identificação dos produtos fictícios;
 - mínimos configuráveis e alertas para saldo igual ou inferior ao mínimo;
 - consulta e confirmação Atendimento → Estoque por XMPP real;

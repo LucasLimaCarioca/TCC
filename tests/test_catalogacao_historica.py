@@ -418,6 +418,7 @@ def test_migracao_incremental_preserva_vinculos_sem_aprovar_e_schema_equivale_mo
             assert connection.exec_driver_sql("SELECT id,nome,preco,quantidade_disponivel,ativo,codigo_externo,demonstracao FROM produtos").one() == (41,"Produto legado fictício",7,13,1,"00770",0)
             assert connection.exec_driver_sql("SELECT count(*) FROM revisoes_associacoes_historicas").scalar() == 0
             assert connection.exec_driver_sql("SELECT count(*) FROM operacoes_catalogacao").scalar() == 0
+            command.upgrade(_config(connection), "0010_associacoes_experimentais")
             assert compare_metadata(MigrationContext.configure(connection), db.metadata) == []
         db.session.remove()
         db.engine.dispose()

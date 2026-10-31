@@ -76,6 +76,11 @@ def _confirmar_execucao(session, product, payload, horizon):
         raise EstoqueError("FORECAST_CHANGED", "A execução de previsão mudou; consulte novamente antes de avaliar o risco.")
     if product.codigo_externo != payload["codigo_produto"]:
         raise EstoqueError("FORECAST_CHANGED", "A associação do produto mudou; consulte novamente a previsão.")
+    from app.services.experimento_previsao_service import validar_publicacao_experimental, ExperimentoError
+    try:
+        validar_publicacao_experimental(session, execution.resultado_json, product)
+    except ExperimentoError as error:
+        raise EstoqueError(error.code, str(error)) from None
     try:
         result = execution.resultado_json
         report = {**execution.metadados_json, "evaluations": execution.metricas_json}
@@ -90,6 +95,7 @@ def _confirmar_execucao(session, product, payload, horizon):
                 or payload["data_corte"] != result["cutoff"]
                 or payload["gerada_em"] != result["generated_at"]
                 or payload["versao"] != result["version"]
+                or payload.get("experimento") != result.get("experimento")
                 or payload["modelo"] != result["models"][code]
                 or payload["periodos"] != result["forecast"]["products"][code]["diaria"][:horizon]):
             raise ValueError

@@ -144,7 +144,19 @@ def _review_dict(review):
             "assinatura_produto": review.assinatura_produto,
             "assinatura_historico": review.assinatura_historico,
             "operador": review.operador, "motivo": review.motivo,
-            "revisado_em": review.revisado_em.isoformat()}
+            "revisado_em": review.revisado_em.isoformat(),
+            "tipo_vinculo": review.tipo_vinculo or "operacional",
+            "selecionado_previsao": bool(review.selecionado_previsao),
+            "compatibilidade": review.compatibilidade_json}
+
+
+def _normalized_snapshot(snapshot):
+    """Auditorias 0009 permanecem reversíveis sem reescrever seu JSON original."""
+    value = dict(snapshot)
+    if value.get("revisao") is not None:
+        value["revisao"] = {"tipo_vinculo": "operacional", "selecionado_previsao": False,
+                             "compatibilidade": None, **value["revisao"]}
+    return value
 
 
 def _snapshot(session, product):
@@ -158,10 +170,19 @@ def versao_produto(session, product):
 
 
 def _reviewed(session, product, metadata):
-    if product is None or product.demonstracao or not product.codigo_externo:
+    if product is None or not product.codigo_externo:
         return False
     review = session.get(RevisaoAssociacaoHistorica, product.id)
-    return bool(review is not None and review.codigo_produto == product.codigo_externo
+    if review is None:
+        return False
+    if review.tipo_vinculo == "experimental":
+        try:
+            _experimental_compatibility(product, review.compatibilidade_json, stored=True)
+        except CatalogacaoError:
+            return False
+    elif product.demonstracao or review.tipo_vinculo != "operacional":
+        return False
+    return bool(review.codigo_produto == product.codigo_externo
         and review.assinatura_produto == fingerprint_produto(product)
         and product.codigo_externo in metadata
         and review.assinatura_historico == _metadata_hash(metadata, product.codigo_externo))
@@ -169,25 +190,104 @@ def _reviewed(session, product, metadata):
 
 def associacao_revisada(session, produto):
     # Legados pendentes não exigem reler todo o histórico a cada consulta/RPC.
-    if (produto is None or produto.demonstracao or not produto.codigo_externo
+    if (produto is None or not produto.codigo_externo
             or session.get(RevisaoAssociacaoHistorica, produto.id) is None):
         return False
     return _reviewed(session, produto, _historico(session))
 
 
 def motivo_associacao(session, produto):
-    if produto is not None and produto.demonstracao:
-        return "Produto de demonstração: associação histórica operacional não autorizada."
     if produto is None or not produto.codigo_externo:
         return "Produto sem associação histórica explícita."
     if not associacao_revisada(session, produto):
         return "Associação histórica pendente de revisão explícita no catálogo."
-    return "Associação histórica revisada pelo operador."
+    review = session.get(RevisaoAssociacaoHistorica, produto.id)
+    if review.tipo_vinculo == "experimental":
+        return "Associação experimental revisada: histórico real, estoque e vendas operacionais simulados."
+    return "Associação histórica operacional revisada pelo operador."
 
 
 def _normal(value):
     value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode().upper()
     return "".join(word for word in re.findall(r"[A-Z0-9]+", value) if word not in {"DE", "DA", "DO"})
+
+
+def elegivel_experimento(product):
+    """Verifica o perfil dos onze cadastros; nunca procura um código histórico."""
+    from app.services.demonstracao_service import PRODUCTS
+    return any(product.nome == f"{category} - {flavour}"
+               and product.categoria == category and product.sabor == flavour
+               for category, flavour, _ in PRODUCTS)
+
+
+def _experimental_compatibility(product, compatibility, *, fictitious=None, stored=False):
+    if not elegivel_experimento(product):
+        _error("EXPERIMENTAL_PRODUCT_REQUIRED", "Selecione um dos onze produtos fictícios já definidos.")
+    flags = {"identidade_confirmada", "embalagem_confirmada", "unidade_confirmada"}
+    fields = {"descricao_historica": 500, "embalagem_historica": 100,
+              "unidade_historica": 64, "unidade_simulada": 64}
+    expected = flags | set(fields) | ({"produto_ficticio_confirmado"} if stored else set())
+    if type(compatibility) is not dict or set(compatibility) != expected:
+        _error("INCOMPATIBLE_ASSOCIATION", "Informe a identidade comercial, embalagem e unidade conferidas.")
+    if any(compatibility.get(key) is not True for key in flags):
+        _error("INCOMPATIBLE_ASSOCIATION", "A associação experimental exige compatibilidade comercial, de embalagem e de unidade confirmada.")
+    confirmed = compatibility.get("produto_ficticio_confirmado") if stored else fictitious
+    if confirmed is not True:
+        _error("CONFIRMATION_REQUIRED", "Confirme que o produto utiliza estoque e vendas operacionais simulados.")
+    normalized = {key: _text(compatibility.get(key), key.replace("_", " "), limit)
+                  for key, limit in fields.items()}
+    # Pontuação pode fazer parte da unidade (por exemplo, uma razão); não usar
+    # a normalização de categorias que remove separadores e palavras.
+    unit = lambda value: " ".join(unicodedata.normalize("NFKC", value).casefold().split())
+    if unit(normalized["unidade_historica"]) != unit(normalized["unidade_simulada"]):
+        _error("INCOMPATIBLE_ASSOCIATION", "Unidades diferentes não podem ser associadas sem conversão; selecione uma equivalência na mesma unidade.")
+    # Uma declaração humana não pode aprovar uma contradição dimensional explícita.
+    def litres(value):
+        found = re.findall(r"(?i)(\d+(?:[.,]\d+)?)\s*(?:l|litros?)\b", value)
+        return {Decimal(item.replace(",", ".")) for item in found}
+    source_volume, target_volume = litres(normalized["embalagem_historica"]), litres(product.categoria)
+    if source_volume and target_volume and source_volume != target_volume:
+        _error("INCOMPATIBLE_ASSOCIATION", "A capacidade da embalagem histórica difere da embalagem simulada.")
+    return {**normalized, **{flag: True for flag in flags}, "produto_ficticio_confirmado": True}
+
+
+def snapshot_selecao_experimental(session):
+    """Seleção auditada e imutável para identificar uma nova execução de previsão."""
+    from app.forecasting.experimental import context_signature
+    reviews = session.scalars(select(RevisaoAssociacaoHistorica).where(
+        RevisaoAssociacaoHistorica.selecionado_previsao.is_(True))).all()
+    if not reviews:
+        _error("SELECTION_EMPTY", "Selecione associações experimentais compatíveis antes de atualizar a previsão.")
+    metadata, selected = _historico(session), []
+    for review in reviews:
+        product = session.get(Produto, review.produto_id)
+        if (review.tipo_vinculo != "experimental" or product is None or not product.ativo
+                or not _reviewed(session, product, metadata)):
+            _error("SELECTION_INVALID", "Uma associação selecionada exige nova revisão de compatibilidade.")
+        selected.append({"produto_id": product.id, "codigo_produto": review.codigo_produto,
+                         "versao_revisao": versao_produto(session, product)})
+    if len(selected) > 11:
+        _error("SELECTION_INVALID", "A seleção experimental está limitada aos onze produtos fictícios.")
+    context = {"versao": 1, "natureza": "experimental", "origem_historico": "real",
+               "estoque": "simulado", "vendas_operacionais": "simuladas",
+               "associacoes": sorted(selected, key=lambda item: item["codigo_produto"])}
+    context["assinatura"] = context_signature(context)
+    return context
+
+
+def validar_selecao_experimental(session, contexto):
+    from app.forecasting.experimental import validate_experimental_context
+    try:
+        expected = validate_experimental_context(contexto)
+    except (ValueError, TypeError):
+        _error("SELECTION_INVALID", "A identificação da seleção experimental é inválida.")
+    try:
+        actual = snapshot_selecao_experimental(session)
+    except CatalogacaoError:
+        _error("SELECTION_CHANGED", "A seleção experimental mudou; atualize a previsão com a seleção atual.")
+    if actual != expected:
+        _error("SELECTION_CHANGED", "A seleção experimental mudou; atualize a previsão com a seleção atual.")
+    return True
 
 
 def _warnings(product, entry):
@@ -226,11 +326,15 @@ def listar_catalogacao():
             if code not in metadata:
                 warnings.append("Código associado não está no histórico importado nem na publicação disponível.")
             reviewed = _reviewed(session, product, metadata)
+            review = session.get(RevisaoAssociacaoHistorica, product.id) if product else None
             state = ("revisado" if reviewed else "sem_associacao" if product is None else
                      "possivel_inconsistencia" if warnings else "pendente")
             codes.append({"codigo_produto": code, **entry, "produto_id": product.id if product else None,
                 "nome": product.nome if product else None, "estado": state, "revisado": reviewed,
-                "avisos": warnings, "versao": _code_version(session, code, metadata)})
+                "avisos": warnings, "versao": _code_version(session, code, metadata),
+                "tipo_vinculo": review.tipo_vinculo if review else "operacional",
+                "selecionado_previsao": bool(review and review.selecionado_previsao),
+                "compatibilidade": review.compatibilidade_json if review else None})
         operations = session.scalars(select(OperacaoCatalogacao).order_by(
             OperacaoCatalogacao.criado_em.desc(), OperacaoCatalogacao.id.desc()).limit(100)).all()
         reversed_ids = set(session.scalars(select(OperacaoCatalogacao.reverte_id).where(
@@ -241,21 +345,25 @@ def listar_catalogacao():
             reversible = operation.acao != "reverter" and operation.id not in reversed_ids
             for item in operation.depois_json:
                 current = session.get(Produto, item["produto_id"])
-                reversible = reversible and current is not None and _snapshot(session, current) == item
+                reversible = reversible and current is not None and _snapshot(session, current) == _normalized_snapshot(item)
             audit.append({"id": operation.id, "acao": operation.acao, "operador": operation.operador,
                 "motivo": operation.motivo, "criado_em": operation.criado_em.isoformat(),
                 "reverte_id": operation.reverte_id, "produtos": ids,
                 "codigos": sorted({item["codigo_externo"] for item in
                     operation.antes_json + operation.depois_json if item["codigo_externo"]}),
+                "tipos_vinculo": sorted({item["revisao"].get("tipo_vinculo", "operacional")
+                    for item in operation.antes_json + operation.depois_json if item.get("revisao")}),
                 "reversivel": bool(reversible)})
         return {"codigos": codes, "produtos": [{"id": product.id, "nome": product.nome,
             "categoria": product.categoria, "sabor": product.sabor, "preco": product.preco,
             "ativo": product.ativo, "demonstracao": bool(product.demonstracao),
+            "elegivel_experimento": elegivel_experimento(product),
             "codigo_externo": product.codigo_externo, "versao": versao_produto(session, product)}
             for product in products], "operacoes": audit}
 
 
-def _review(session, product, metadata, operator, reason):
+def _review(session, product, metadata, operator, reason, *, tipo_vinculo="operacional",
+            selecionado_previsao=False, compatibilidade=None):
     review = session.get(RevisaoAssociacaoHistorica, product.id)
     if review is None:
         review = RevisaoAssociacaoHistorica(produto_id=product.id)
@@ -264,6 +372,9 @@ def _review(session, product, metadata, operator, reason):
     review.assinatura_produto = fingerprint_produto(product)
     review.assinatura_historico = _metadata_hash(metadata, product.codigo_externo)
     review.operador, review.motivo, review.revisado_em = operator, reason, utc_now()
+    review.tipo_vinculo = tipo_vinculo
+    review.selecionado_previsao = selecionado_previsao
+    review.compatibilidade_json = compatibilidade
 
 
 def _clear_review(session, product):
@@ -321,7 +432,10 @@ def _restore_review(session, product, data):
         session.add(RevisaoAssociacaoHistorica(produto_id=product.id,
             codigo_produto=data["codigo_produto"], assinatura_produto=data["assinatura_produto"],
             assinatura_historico=data["assinatura_historico"], operador=data["operador"],
-            motivo=data["motivo"], revisado_em=datetime.fromisoformat(data["revisado_em"])))
+            motivo=data["motivo"], revisado_em=datetime.fromisoformat(data["revisado_em"]),
+            tipo_vinculo=data.get("tipo_vinculo", "operacional"),
+            selecionado_previsao=data.get("selecionado_previsao", False),
+            compatibilidade_json=data.get("compatibilidade")))
 
 
 def _reverse(session, data):
@@ -342,7 +456,7 @@ def _reverse(session, data):
         if product is None:
             _error("MAPPING_CONFLICT", "Um produto da operação não está mais disponível.")
         _expect_product(session, product, versions[str(product.id)])
-        if _snapshot(session, product) != after:
+        if _snapshot(session, product) != _normalized_snapshot(after):
             _error("CATALOG_CHANGED", "Uma operação posterior alterou o vínculo; não é seguro reverter esta operação.")
         products.append(product)
     before = [_snapshot(session, product) for product in products]
@@ -373,12 +487,23 @@ def executar_catalogacao(acao, **dados):
     allowed |= ({"reverter_operacao_id", "versoes"} if acao == "reverter" else
                 {"codigo_produto", "versao", "produto"} if acao == "criar" else
                 {"codigo_produto", "versao", "produto_id", "versao_produto"})
+    if acao != "reverter":
+        allowed |= {"tipo_vinculo", "selecionado_previsao", "produto_ficticio_confirmado", "compatibilidade"}
     if set(dados) - allowed:
         _error("INVALID_INPUT", "A operação contém campos desconhecidos.")
     if dados.get("confirmar") is not True:
         _error("CONFIRMATION_REQUIRED", "Confirme explicitamente o código e o produto antes de alterar o catálogo.")
     operator = _text(dados.get("operador"), "identificação do operador", 100)
     reason = _text(dados.get("motivo"), "motivo da revisão", 500)
+    kind = dados.get("tipo_vinculo", "operacional")
+    selected = dados.get("selecionado_previsao", False)
+    if acao != "reverter":
+        if type(kind) is not str or kind not in {"operacional", "experimental"}:
+            _error("INVALID_INPUT", "Identifique o vínculo como operacional ou experimental.")
+        if type(selected) is not bool or selected and kind != "experimental":
+            _error("INVALID_INPUT", "Somente associações experimentais podem participar desta seleção de previsão.")
+        if acao == "criar" and kind == "experimental":
+            _error("EXPERIMENTAL_CREATE_DISABLED", "O experimento usa somente os onze produtos fictícios existentes; não cria produtos.")
     operation_id = dados.get("operacao_id")
     try:
         operation_id = str(UUID(operation_id)) if operation_id is not None else str(uuid4())
@@ -411,7 +536,7 @@ def executar_catalogacao(acao, **dados):
                     if product is None:
                         _error("PRODUCT_NOT_FOUND", "Produto operacional não encontrado.")
                     _expect_product(session, product, dados.get("versao_produto"))
-                if product.demonstracao and acao != "desassociar":
+                if product.demonstracao and acao != "desassociar" and kind != "experimental":
                     _error("DEMONSTRATION_PRODUCT", "Produtos de demonstração não podem receber associações históricas operacionais.")
                 products = [product]
                 if acao in {"revisar", "desassociar"}:
@@ -428,12 +553,23 @@ def executar_catalogacao(acao, **dados):
                     product.codigo_externo = None
                     _clear_review(session, product)
                 else:
+                    previous_reviews = [session.get(RevisaoAssociacaoHistorica, item.id) for item in products]
+                    if ("tipo_vinculo" not in dados and any(review is not None
+                            and review.tipo_vinculo == "experimental" for review in previous_reviews)):
+                        _error("EXPERIMENTAL_MODE_REQUIRED", "Identifique explicitamente a natureza experimental antes de revisar este vínculo.")
+                    compatibility = None
+                    if kind == "experimental":
+                        compatibility = _experimental_compatibility(product, dados.get("compatibilidade"),
+                            fictitious=dados.get("produto_ficticio_confirmado"))
+                        if selected and not product.ativo:
+                            _error("SELECTION_INVALID", "Um produto inativo não pode participar da previsão de estoque simulado.")
                     if acao == "alterar":
                         owner.codigo_externo = None
                         _clear_review(session, owner)
                         session.flush()
                     product.codigo_externo = code
-                    _review(session, product, metadata, operator, reason)
+                    _review(session, product, metadata, operator, reason, tipo_vinculo=kind,
+                        selecionado_previsao=selected, compatibilidade=compatibility)
                 reverse_id = None
             session.flush()
             result = {"operacao_id": operation_id, "acao": acao,

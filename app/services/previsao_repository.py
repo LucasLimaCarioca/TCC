@@ -12,6 +12,7 @@ from sqlalchemy import select, text, update
 from sqlalchemy.orm import Session
 
 from app.database import db
+from app.forecasting.experimental import validate_experimental_context
 from app.models.previsao_demanda import PrevisaoDemanda
 from app.models.previsao_execucao import PrevisaoExecucao
 from app.models.produto import Produto
@@ -34,6 +35,7 @@ class RepositoryError(ValueError):
             "RUN_CONFLICT": "A execução já foi publicada com outro conteúdo.",
             "STORAGE_ERROR": "Não foi possível acessar a publicação de previsão local.",
             "UPDATE_CANCELLED": "A atualização da previsão foi cancelada antes da publicação.",
+            "SELECTION_CHANGED": "A seleção experimental mudou; confirme os vínculos e gere uma nova execução.",
         }
         super().__init__(messages[code])
 
@@ -196,7 +198,7 @@ def _evaluation(value, selected, cutoff):
 
 def _validated(result, report):
     try:
-        _keys(result, (*METADATA, "forecast", "models"))
+        _keys(result, (*METADATA, "forecast", "models", *(["experimento"] if "experimento" in result else [])))
         _require(result["version"] == "forecast-v1")
         _require(type(result["run_id"]) is str and re.fullmatch(r"previsao-[0-9a-f]{32}", result["run_id"]) is not None)
         cutoff = _day(result["cutoff"])
@@ -211,6 +213,15 @@ def _validated(result, report):
         _keys(result["models"], products)
         _require(type(report) is dict and all(report.get(key) == result[key] for key in METADATA))
         _keys(report.get("evaluations"), products)
+        experimental = result.get("experimento")
+        if "experimento" in result:
+            validate_experimental_context(experimental, codes=products)
+            _require(report.get("experimento") == experimental)
+            if "dataset" in report:
+                _require(type(report["dataset"]) is dict
+                         and set(report["dataset"].get("products", {})) == set(products))
+        else:
+            _require("experimento" not in report)
         with localcontext() as context:
             context.prec = 450
             overall = [Decimal(0)] * len(days)
@@ -225,6 +236,8 @@ def _validated(result, report):
             _validate_view(result["forecast"]["overall"], days, overall)
         # Só os metadados conhecidos e métricas são armazenados como relatório.
         metadata = {key: result[key] for key in METADATA}
+        if experimental is not None:
+            metadata["experimento"] = validate_experimental_context(experimental, codes=products)
         copied_result, copied_evaluations = json.loads(json.dumps(
             [result, report["evaluations"]], allow_nan=False))
         return copied_result, copied_evaluations, metadata, generated.astimezone(timezone.utc).replace(tzinfo=None), cutoff
@@ -254,6 +267,17 @@ def _not_cancelled(cancel_event):
             raise RepositoryError("UPDATE_CANCELLED")
 
 
+def _selection_unchanged(session, result):
+    """Relê seleção e revisões sob o mesmo bloqueio usado na publicação."""
+    if "experimento" not in result:
+        return
+    from app.services.catalogacao_service import CatalogacaoError, validar_selecao_experimental
+    try:
+        validar_selecao_experimental(session, result["experimento"])
+    except CatalogacaoError:
+        raise RepositoryError("SELECTION_CHANGED") from None
+
+
 def persistir_execucao(*, manifest_path, manifest_sha256, result, report, cancel_event=None):
     """Publica uma execução integral ou preserva a anterior, com sessão própria.
 
@@ -279,6 +303,7 @@ def persistir_execucao(*, manifest_path, manifest_sha256, result, report, cancel
                         raise RepositoryError("RUN_CONFLICT")
                     session.commit()
                     return {"run_id": result["run_id"], "status": "concluido"}
+                _selection_unchanged(session, result)
                 execution = PrevisaoExecucao(
                     id=result["run_id"], manifest_path=manifest_path, manifest_sha256=manifest_sha256,
                     gerada_em=generated, data_corte=cutoff, horizonte_dias=result["horizon_days"],
@@ -304,6 +329,7 @@ def persistir_execucao(*, manifest_path, manifest_sha256, result, report, cancel
                 # Primeiro confirma todas as linhas; a troca da publicação é última.
                 session.flush()
                 _not_cancelled(cancel_event)
+                _selection_unchanged(session, result)
                 session.execute(update(PrevisaoExecucao).where(PrevisaoExecucao.ativa.is_(True)).values(ativa=False))
                 execution.ativa = True
                 _not_cancelled(cancel_event)
@@ -326,7 +352,8 @@ def carregar_ativa():
             execution = session.scalars(select(PrevisaoExecucao).where(PrevisaoExecucao.ativa.is_(True))).one_or_none()
             if execution is None:
                 return None
-            _keys(execution.metadados_json, METADATA)
+            _keys(execution.metadados_json, (*METADATA,
+                *(["experimento"] if "experimento" in execution.metadados_json else [])))
             report = {**execution.metadados_json, "evaluations": execution.metricas_json}
             result, _, metadata, generated, cutoff = _validated(execution.resultado_json, report)
             _manifest_reference(execution.manifest_path, execution.manifest_sha256, execution.id)

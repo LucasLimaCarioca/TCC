@@ -66,7 +66,8 @@ def invalid(error):
 def remote_failure(error):
     status = (400 if error.code in {"INVALID_INPUT", "HORIZON_UNAVAILABLE", "PERIOD_UNAVAILABLE"} else
               404 if error.code in {"HISTORY_NOT_FOUND", "PRODUCT_NOT_FOUND", "JOB_NOT_FOUND"} else
-              409 if error.code == "FORECAST_BUSY" else 503)
+              409 if error.code in {"FORECAST_BUSY", "SELECTION_CHANGED", "SELECTION_EMPTY", "SELECTION_INVALID",
+                                    "EXPERIMENTAL_RUN_REQUIRED", "PRODUCT_NOT_SELECTED", "MAPPING_REVIEW_REQUIRED"} else 503)
     return {"erro": str(error), "code": error.code}, status
 
 

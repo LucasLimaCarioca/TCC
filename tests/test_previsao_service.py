@@ -13,6 +13,7 @@ from app.services import previsao_service as adapter
 from app.services.previsao_service import PrevisaoError, PrevisaoService
 from app.services import previsao_repository as repository
 from test_forecasting_service import project, execute
+from experimental_fixtures import experimental_configured
 
 
 @pytest.fixture
@@ -159,8 +160,8 @@ def test_inicializacao_cancelada_nao_publica_manifesto_configurado(configured):
     assert error.value.code == "MODEL_UNAVAILABLE"
 
 
-def test_recalcular_publica_nova_execucao_sem_mudar_historico(configured, monkeypatch):
-    service, paths, _ = configured
+def test_recalcular_publica_nova_execucao_sem_mudar_historico(experimental_configured, monkeypatch):
+    service, paths, _ = experimental_configured
     service.carregar(paths["manifest"])
     source = service.root / "data/processed/reviewed.csv"
     before = source.read_bytes()
@@ -180,8 +181,8 @@ def test_recalculo_exige_dia_completo_e_formato_estrito(configured, monkeypatch,
     assert error.value.code == "INVALID_INPUT"
 
 
-def test_revisao_nao_configurada_e_corte_fora_da_revisao_preservam_ativa(configured, monkeypatch):
-    service, paths, _ = configured
+def test_revisao_nao_configurada_e_corte_fora_da_revisao_preservam_ativa(experimental_configured, monkeypatch):
+    service, paths, _ = experimental_configured
     service.carregar(paths["manifest"])
     monkeypatch.setattr(adapter, "hoje_manaus", lambda: date(2026, 1, 13))
     with pytest.raises(PrevisaoError) as error:
@@ -194,8 +195,8 @@ def test_revisao_nao_configurada_e_corte_fora_da_revisao_preservam_ativa(configu
     assert error.value.code == "REVIEW_UNAVAILABLE"
 
 
-def test_cancelamento_antes_da_ativacao_preserva_execucao_anterior(configured, monkeypatch):
-    service, paths, _ = configured
+def test_cancelamento_antes_da_ativacao_preserva_execucao_anterior(experimental_configured, monkeypatch):
+    service, paths, _ = experimental_configured
     service.carregar(paths["manifest"])
     event = Event()
     original = adapter.run_forecast
