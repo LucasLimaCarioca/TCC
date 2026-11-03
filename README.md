@@ -547,6 +547,14 @@ para inspeção, sem alterar a publicação.
 
 ### Catalogação histórica
 
+A flag `CATALOGACAO_ENABLED` controla a tela e as APIs HTTP de catalogação.
+O padrão é `1` (habilitada). Para desativar, defina `CATALOGACAO_ENABLED=0` no
+`.env` e reinicie `python run.py`. Isso oculta os links e retorna HTTP 404 em
+`/catalogacao`, `/api/catalogacao` e `/api/catalogacao/operacoes`, antes de acessar
+os serviços. Use `1` para reativar. Valores exportados no shell têm prioridade
+sobre o `.env`. A flag não é autenticação e não altera vínculos já salvos,
+seleção experimental, previsão, agentes ou comandos administrativos do terminal.
+
 A rota `/catalogacao` separa os códigos do histórico do catálogo operacional.
 Ela identifica códigos sem associação, vínculos pendentes, possíveis
 inconsistências e revisões realizadas pelo operador. Diferenças de categoria

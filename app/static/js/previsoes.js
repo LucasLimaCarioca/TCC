@@ -303,7 +303,6 @@
         updateControls(data.atualizacao);
         byId("previsao-painel").hidden = data.periodos.length === 0;
         byId("previsao-vazia").hidden = data.periodos.length !== 0;
-        byId("previsao-desatualizada").hidden = data.cobertura.desatualizada !== true;
         currentData = data;
     }
     async function load({freshPublication = false, clear = false} = {}) {

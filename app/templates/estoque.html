@@ -9,7 +9,9 @@
         <div class="section-header">
             <h1>Controle de Estoque</h1>
             <p>Produtos acabados, matérias-primas, movimentações e alertas de estoque.</p>
+            {% if config['CATALOGACAO_ENABLED'] %}
             <p>Produtos existentes somente no histórico devem ser conferidos em <a href="{{ url_for('catalogacao.tela_catalogacao') }}">Catalogação</a>. Nenhum cadastro de estoque é criado automaticamente.</p>
+            {% endif %}
             <p>Cadastros sem marca de demonstração não comprovam origem real. Produtos legados devem ter sua origem e identidade comercial conferidas pelo operador.</p>
         </div>
 

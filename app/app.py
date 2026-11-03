@@ -41,6 +41,17 @@ def create_app(test_config=None):
     # Uma URI explícita nunca prepara nem acessa o banco privado padrão.
     if test_config is not None:
         app.config.update(test_config)
+
+    # A flag controla a interface HTTP; testes usam apenas configuração explícita.
+    catalogacao_enabled = app.config.get(
+        'CATALOGACAO_ENABLED', True if app.testing else os.environ.get('CATALOGACAO_ENABLED', '1')
+    )
+    if type(catalogacao_enabled) is str and catalogacao_enabled in {'0', '1'}:
+        catalogacao_enabled = catalogacao_enabled == '1'
+    if type(catalogacao_enabled) is not bool:
+        raise ValueError('Configure CATALOGACAO_ENABLED com 0 ou 1.')
+    app.config['CATALOGACAO_ENABLED'] = catalogacao_enabled
+
     if 'SQLALCHEMY_DATABASE_URI' not in app.config:
         app.config['SQLALCHEMY_DATABASE_URI'] = (
             'sqlite:///:memory:' if app.testing else _database_uri()

@@ -1,12 +1,21 @@
 """Fluxo administrativo explícito; escritas passam pela autoridade de Estoque."""
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, abort, current_app, jsonify, render_template, request
 
 from app.services.catalogacao_service import CatalogacaoError, listar_catalogacao
 from app.services.estoque_client import EstoqueClient
 
 
 catalogacao_bp = Blueprint("catalogacao", __name__)
+
+
+@catalogacao_bp.before_request
+def verificar_catalogacao_habilitada():
+    # Bloqueia também chamadas diretas à API antes de consultar ou alterar dados.
+    if not current_app.config["CATALOGACAO_ENABLED"]:
+        if request.path.startswith("/api/"):
+            return {"erro": "Catalogação desativada.", "code": "FEATURE_DISABLED"}, 404
+        abort(404)
 
 
 @catalogacao_bp.after_request

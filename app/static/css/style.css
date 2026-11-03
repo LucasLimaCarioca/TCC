@@ -341,7 +341,8 @@ body {
 .stock-form button:disabled { opacity: 0.65; cursor: wait; }
 #alertas-estoque, .stock-form { scroll-margin-top: 20px; }
 .stock-notifications { position: relative; font-size: 14px; align-self: center; }
-.stock-notifications summary { list-style: none; cursor: pointer; padding: 8px 12px; border-radius: 6px; white-space: nowrap; }
+.stock-notifications summary { display: flex; align-items: center; justify-content: center; gap: 6px; width: 80px; height: 40px; box-sizing: border-box; list-style: none; cursor: pointer; padding: 8px; border-radius: 6px; white-space: nowrap; }
+.stock-notification-icon { display: block; width: 24px; height: 24px; flex: 0 0 24px; object-fit: contain; filter: brightness(0) invert(1); }
 .stock-notifications summary::-webkit-details-marker { display: none; }
 .stock-notifications summary:hover, .stock-notifications[open] summary { background: rgba(255, 255, 255, 0.15); }
 .stock-notifications summary:focus-visible, .stock-notification-panel :focus-visible { outline: 3px solid #cf8d00; outline-offset: 3px; }
