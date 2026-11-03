@@ -88,7 +88,7 @@ class EstoqueAgent(BaseAgent):
     async def executar(self, command, **kwargs):
         if not self.is_alive() or not self.client.is_connected():
             raise AgentUnavailable("Agente de estoque desconectado.")
-        if command not in {"visao_estoque", "sincronizar_alertas", "movimentar", "configurar_minimo",
+        if command not in {"visao_estoque", "resumo_alertas", "sincronizar_alertas", "movimentar", "configurar_minimo",
                             "cadastrar_materia_prima", "consultar_disponibilidade", "consultar_produto", "registrar_venda",
                             "catalogar_historico", "conferir_associacao"}:
             raise EstoqueError("INVALID_INPUT", "Operação de estoque inválida.")

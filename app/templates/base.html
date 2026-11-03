@@ -29,7 +29,7 @@
         <a href="{{ url_for('catalogacao.tela_catalogacao') }}"{% if request.endpoint == 'catalogacao.tela_catalogacao' %} aria-current="page"{% endif %}>Catalogação</a>
         {% endif %}
         <a href="{{ url_for('venda.tela_vendas') }}"{% if request.endpoint == 'venda.tela_vendas' %} aria-current="page"{% endif %}>Vendas</a>
-        <details id="estoque-notificacoes" class="stock-notifications" data-api="{{ url_for('estoque.alertas_api') }}">
+        <details id="estoque-notificacoes" class="stock-notifications" data-api="{{ url_for('estoque.resumo_alertas_api') }}" data-cache-scope="{{ config['STOCK_NOTIFICATION_SCOPE'] }}" data-invalidar="{{ 'true' if request.method == 'POST' else 'false' }}">
             <summary aria-label="Consultar alertas de estoque" title="Alertas de estoque">
                 <img class="stock-notification-icon" src="{{ url_for('static', filename='images/sino.png') }}" alt="" aria-hidden="true" width="24" height="24">
                 <span id="notificacoes-contagem" class="stock-alert-count" aria-hidden="true">…</span>

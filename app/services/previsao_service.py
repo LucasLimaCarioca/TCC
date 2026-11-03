@@ -147,6 +147,21 @@ class PrevisaoService:
                     or report.get("experimento") != result.get("experimento")):
                 raise ValueError
             repository.validar_execucao(result, report)
+            # Somente identificação comercial, já validada; o sino não precisa
+            # reabrir arquivos nem guardar séries de demanda neste snapshot.
+            dataset = report.get("dataset")
+            products = dataset.get("products", {}) if type(dataset) is dict else {}
+            catalog_snapshot = {
+                "key": (str(self.root), result["run_id"], digest),
+                "report": {"dataset": {"products": {
+                    code: {key: item.get(key) for key in ("categoria", "codigo_grupo")}
+                    for code, item in (products.items() if type(products) is dict else ())
+                    if type(item) is dict
+                }}},
+            }
+            # A coleta offline de evidências também usa este leitor, sem Flask.
+            if hasattr(self.app, "extensions"):
+                self.app.extensions["forecast_catalog_metadata"] = catalog_snapshot
             return path, digest, result, report
         except PrevisaoError:
             raise

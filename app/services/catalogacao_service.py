@@ -90,7 +90,7 @@ def fingerprint_produto(produto):
                   "ativo": produto.ativo, "demonstracao": bool(produto.demonstracao)})
 
 
-def _historico(session):
+def _historico(session, *, somente_persistido=False):
     metadata = {}
 
     def add(code, category=None, group=None, origin=None):
@@ -121,8 +121,16 @@ def _historico(session):
         from app.services.previsao_service import PrevisaoService, PrevisaoError
         try:
             service = PrevisaoService(current_app._get_current_object())
-            _, _, bundle, report = service._bundle(active.manifest_path, active.manifest_sha256,
-                                                  check_all=False)
+            if somente_persistido:
+                # O sino usa o pequeno snapshot já validado pelo agente, sem
+                # abrir artefatos. Na partida, sua ausência é conservadora.
+                cached = current_app.extensions.get("forecast_catalog_metadata", {})
+                report = cached.get("report", {}) if cached.get("key") == (
+                    str(service.root), active.id, active.manifest_sha256) else {}
+                bundle = active.resultado_json
+            else:
+                _, _, bundle, report = service._bundle(active.manifest_path, active.manifest_sha256,
+                                                      check_all=False)
             if bundle == active.resultado_json:
                 for code, item in report.get("dataset", {}).get("products", {}).items():
                     add(code, item.get("categoria"), item.get("codigo_grupo"), "previsao_publicada")
@@ -188,12 +196,12 @@ def _reviewed(session, product, metadata):
         and review.assinatura_historico == _metadata_hash(metadata, product.codigo_externo))
 
 
-def associacao_revisada(session, produto):
+def associacao_revisada(session, produto, *, metadata=None):
     # Legados pendentes não exigem reler todo o histórico a cada consulta/RPC.
     if (produto is None or not produto.codigo_externo
             or session.get(RevisaoAssociacaoHistorica, produto.id) is None):
         return False
-    return _reviewed(session, produto, _historico(session))
+    return _reviewed(session, produto, _historico(session) if metadata is None else metadata)
 
 
 def motivo_associacao(session, produto):
@@ -251,14 +259,15 @@ def _experimental_compatibility(product, compatibility, *, fictitious=None, stor
     return {**normalized, **{flag: True for flag in flags}, "produto_ficticio_confirmado": True}
 
 
-def snapshot_selecao_experimental(session):
+def snapshot_selecao_experimental(session, *, metadata=None):
     """Seleção auditada e imutável para identificar uma nova execução de previsão."""
     from app.forecasting.experimental import context_signature
     reviews = session.scalars(select(RevisaoAssociacaoHistorica).where(
         RevisaoAssociacaoHistorica.selecionado_previsao.is_(True))).all()
     if not reviews:
         _error("SELECTION_EMPTY", "Selecione associações experimentais compatíveis antes de atualizar a previsão.")
-    metadata, selected = _historico(session), []
+    metadata = _historico(session) if metadata is None else metadata
+    selected = []
     for review in reviews:
         product = session.get(Produto, review.produto_id)
         if (review.tipo_vinculo != "experimental" or product is None or not product.ativo
@@ -275,14 +284,15 @@ def snapshot_selecao_experimental(session):
     return context
 
 
-def validar_selecao_experimental(session, contexto):
+def validar_selecao_experimental(session, contexto, *, metadata=None):
     from app.forecasting.experimental import validate_experimental_context
     try:
         expected = validate_experimental_context(contexto)
     except (ValueError, TypeError):
         _error("SELECTION_INVALID", "A identificação da seleção experimental é inválida.")
     try:
-        actual = snapshot_selecao_experimental(session)
+        actual = (snapshot_selecao_experimental(session) if metadata is None
+                  else snapshot_selecao_experimental(session, metadata=metadata))
     except CatalogacaoError:
         _error("SELECTION_CHANGED", "A seleção experimental mudou; atualize a previsão com a seleção atual.")
     if actual != expected:

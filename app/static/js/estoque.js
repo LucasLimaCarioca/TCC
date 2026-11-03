@@ -110,6 +110,7 @@
         try { result = await response.json(); }
         catch (_) { throw new Error("O sistema retornou uma resposta inválida. Tente novamente."); }
         if (!response.ok) throw new Error(typeof result.erro === "string" ? result.erro : "Não foi possível concluir a operação.");
+        if (method !== "GET") window.estoqueNotificacoes?.invalidar({recarregar: false});
         return result;
     }
     function bind(id, handler) {

@@ -146,6 +146,7 @@ async function harness(value, {width = 900, response = null} = {}) {
     wrapper.clientWidth = width;
     get("previsao-grafico").parentElement = wrapper;
     const calls = [];
+    const invalidations = [];
     const windowEvents = {};
     const timers = new Map();
     let timerId = 0;
@@ -153,6 +154,7 @@ async function harness(value, {width = 900, response = null} = {}) {
         document: {getElementById: get, createElement: (tag) => new Element(tag),
             createElementNS: (_, tag) => new Element(tag), createDocumentFragment: () => new Element("#fragment")},
         window: {location: {href: "http://localhost/previsoes"},
+            estoqueNotificacoes: {invalidar: () => invalidations.push(true)},
             addEventListener: (name, fn) => { windowEvents[name] = fn; },
             setTimeout: (fn) => { timers.set(++timerId, fn); return timerId; },
             clearTimeout: (id) => timers.delete(id)},
@@ -165,7 +167,7 @@ async function harness(value, {width = 900, response = null} = {}) {
     };
     vm.runInNewContext(source, context, {filename: "previsoes.js"});
     await settle();
-    return {get, calls, wrapper, windowEvents, timers, settle,
+    return {get, calls, wrapper, windowEvents, timers, settle, invalidations,
         async fire(id, event) {
             await get(id).listeners[event]({preventDefault() {}});
             await settle();
@@ -396,6 +398,21 @@ test("resposta atrasada não substitui a seleção mais recente", async () => {
     assert.equal(ui.get("previsao-total").textContent, "9");
 });
 
+test("publicação concluída invalida contagem do sino", async () => {
+    const data = payload(["1.5", "2.5"]);
+    const jobId = "00000000-0000-4000-8000-000000000001";
+    const ui = await harness(data, {response: async (url) => {
+        if (url.pathname === "/api/previsoes/atualizar") return {status: 202, body: {job_id: jobId, status: "em_execucao"}};
+        if (url.pathname.startsWith("/api/previsoes/tarefas/")) return {status: 200, body: {
+            job_id: jobId, status: "concluido", execucao_id: data.execucao_id
+        }};
+        return {status: 200, body: data};
+    }});
+    assert.equal(ui.invalidations.length, 0);
+    await ui.fire("previsao-atualizar", "submit");
+    assert.equal(ui.invalidations.length, 1);
+});
+
 test("falha do recálculo mantém a publicação e os valores arredondados anteriores", async () => {
     const data = payload(["1.5", "2.5"]);
     const jobId = "00000000-0000-4000-8000-000000000001";
@@ -411,6 +428,7 @@ test("falha do recálculo mantém a publicação e os valores arredondados anter
     assert.equal(ui.get("previsao-total").textContent, "5");
     assert.match(ui.get("previsao-tarefa-status").textContent, /publicação anterior foi preservada/);
     assert.equal(ui.get("previsao-tarefa-erro").textContent, "Falha fictícia do recálculo.");
+    assert.equal(ui.invalidations.length, 0);
 });
 
 function experimentalPayload() {

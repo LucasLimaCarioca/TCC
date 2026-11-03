@@ -126,7 +126,9 @@ function harness({storage = new Storage(), storageUnavailable = false, response 
     const requests = [];
     let reloads = 0;
     let identifiers = 0;
-    const window = {location: {reload: () => { reloads += 1; }}};
+    const invalidations = [];
+    const window = {location: {reload: () => { reloads += 1; }},
+        estoqueNotificacoes: {invalidar: (options) => invalidations.push(options)}};
     Object.defineProperty(window, "sessionStorage", {
         get() { if (storageUnavailable) throw new Error("Armazenamento indisponível na fixture."); return storage; }
     });
@@ -160,7 +162,7 @@ function harness({storage = new Storage(), storageUnavailable = false, response 
     return {
         form: (id) => elements.get(id), output: (id) => elements.get(feedbackIds[id]),
         get: (id) => elements.get(id), minimum, initial, minus, plus, steppers, calls, requests, storage,
-        get reloads() { return reloads; },
+        get reloads() { return reloads; }, invalidations,
         async submit(id) { await elements.get(id).listeners.submit(new Event("submit")); },
         setInput(input, value) { input.value = value; input.dispatchEvent(new Event("input", {bubbles: true})); },
         click(button) { button.listeners.click(new Event("click")); }
@@ -188,8 +190,19 @@ test("HTTP 400 mostra erro próximo ao formulário, acessível, com foco e valor
     assert.equal(form.submitButton.disabled, false);
     assert.equal(form.getAttribute("aria-busy"), "false");
     assert.equal(ui.reloads, 0);
+    assert.equal(ui.invalidations.length, 0);
     assert.deepEqual(ui.storage.writes, []);
     assert.equal(ui.output("minimo-form").hidden, true);
+});
+
+test("movimentação confirmada invalida o sino antes da navegação; consulta de risco preserva cache", async () => {
+    const ui = harness();
+    await ui.submit("movimentacao-form");
+    assert.equal(ui.invalidations.length, 1);
+    assert.equal(ui.invalidations[0].recarregar, false);
+    assert.equal(ui.reloads, 1);
+    await ui.submit("risco-form");
+    assert.equal(ui.invalidations.length, 1);
 });
 
 test("erro de rede conserva a mesma chave para repetir o mesmo conteúdo e muda a chave com os dados", async () => {

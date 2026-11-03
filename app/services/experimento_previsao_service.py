@@ -11,7 +11,7 @@ class ExperimentoError(ValueError):
         super().__init__(message)
 
 
-def validar_publicacao_experimental(session, result, produto=None):
+def validar_publicacao_experimental(session, result, produto=None, *, metadata=None):
     """Exige o mesmo conjunto e as mesmas revisões capturados no treinamento.
 
     Publicações anteriores continuam legíveis enquanto não houver uma seleção
@@ -33,7 +33,10 @@ def validar_publicacao_experimental(session, result, produto=None):
                 "A publicação anterior não representa a seleção experimental. Atualize a previsão para gerar uma nova execução.")
         return None
     try:
-        validar_selecao_experimental(session, context)
+        if metadata is None:
+            validar_selecao_experimental(session, context)
+        else:
+            validar_selecao_experimental(session, context, metadata=metadata)
     except (CatalogacaoError, ValueError, TypeError):
         raise ExperimentoError("SELECTION_CHANGED",
             "A seleção experimental ou sua revisão mudou. Atualize a previsão; a publicação anterior foi preservada.") from None

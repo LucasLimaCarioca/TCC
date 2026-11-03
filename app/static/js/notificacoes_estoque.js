@@ -9,28 +9,71 @@
     const button = document.getElementById("notificacoes-atualizar");
     const summary = panel.querySelector("summary");
     const automaticCooldown = 30000;
+    const scope = panel.dataset.cacheScope;
+    const cacheKey = "estoque.notificacoes.v1." + scope;
+    const revisionKey = cacheKey + ".invalidacao";
+    const day = () => new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Manaus", year: "numeric", month: "2-digit", day: "2-digit"
+    }).format(new Date(Date.now()));
     let lastAttempt = null;
+    let lastAttemptDay = null;
+    let lastAttemptRevision = null;
     let previous = null;
+    let confirmedAt = null;
     let inFlight = false;
+    let generation = 0;
+    let refreshAfterFlight = false;
+
+    function revision() {
+        try { return window.localStorage.getItem(revisionKey) || ""; }
+        catch (_) { return ""; }
+    }
 
     function countsFrom(payload) {
-        if (!Array.isArray(payload) || payload.some((item) => item === null || typeof item !== "object"
-            || Array.isArray(item) || typeof item.ativo !== "boolean"
-            || typeof item.tipo_alerta !== "string" || !item.tipo_alerta)) {
+        const keys = ["total", "immediate", "preventive", "pending"];
+        if (!payload || typeof payload !== "object" || Array.isArray(payload)
+            || Object.keys(payload).length !== keys.length
+            || keys.some((key) => !Number.isSafeInteger(payload[key]) || payload[key] < 0)
+            || payload.total !== payload.immediate + payload.preventive || payload.pending > payload.preventive) {
             throw new Error("Resposta de alertas inválida.");
         }
-        const counts = {total: 0, immediate: 0, preventive: 0, pending: 0};
-        payload.forEach((item) => {
-            if (!item.ativo) return;
-            counts.total += 1;
-            if (item.tipo_alerta === "risco_futuro") {
-                counts.preventive += 1;
-                if (!item.avaliacao || item.avaliacao.atual !== true) counts.pending += 1;
-            } else {
-                counts.immediate += 1;
-            }
-        });
-        return counts;
+        return Object.fromEntries(keys.map((key) => [key, payload[key]]));
+    }
+
+    function restore() {
+        if (!scope) return;
+        try {
+            const cached = JSON.parse(window.sessionStorage.getItem(cacheKey));
+            if (!cached || cached.revision !== revision() || cached.day !== day()
+                || !Number.isSafeInteger(cached.at) || cached.at < 0 || cached.at > Date.now()) return;
+            previous = countsFrom(cached.counts);
+            confirmedAt = cached.at;
+            lastAttempt = cached.stale ? null : cached.at;
+            lastAttemptDay = cached.day;
+            lastAttemptRevision = cached.revision;
+            render(previous);
+        } catch (_) { /* Sem armazenamento, consultar normalmente. */ }
+    }
+
+    function save(counts, expectedRevision, stale = false) {
+        if (!scope) return;
+        try {
+            window.sessionStorage.setItem(cacheKey, JSON.stringify({
+                counts, at: confirmedAt, day: day(), revision: expectedRevision, stale
+            }));
+        } catch (_) { /* O sino funciona também com armazenamento bloqueado. */ }
+    }
+
+    function invalidate({recarregar = true} = {}) {
+        generation += 1;
+        lastAttempt = null;
+        try { window.sessionStorage.removeItem(cacheKey); } catch (_) { /* indisponível */ }
+        try { window.localStorage.setItem(revisionKey, Date.now() + ":" + Math.random()); } catch (_) { /* indisponível */ }
+        count.dataset.stale = "true";
+        if (recarregar && document.visibilityState !== "hidden") {
+            if (inFlight) refreshAfterFlight = true;
+            else refresh(true);
+        }
     }
 
     function item(text) {
@@ -56,8 +99,15 @@
     async function refresh(force = false) {
         if (inFlight) return;
         const now = Date.now();
-        if (!force && lastAttempt !== null && now - lastAttempt < automaticCooldown) return;
+        const currentRevision = revision();
+        if (!force && lastAttemptDay === day() && lastAttemptRevision === currentRevision
+            && lastAttempt !== null && now - lastAttempt < automaticCooldown) return;
         lastAttempt = now;
+        lastAttemptDay = day();
+        lastAttemptRevision = currentRevision;
+        const expectedGeneration = generation;
+        const expectedRevision = currentRevision;
+        const expectedDay = lastAttemptDay;
         inFlight = true;
         button.disabled = true;
         panel.dataset.state = "loading";
@@ -79,8 +129,15 @@
             });
             if (!response.ok) throw new Error("Consulta indisponível.");
             const counts = countsFrom(await response.json());
+            // Uma operação ocorrida durante o GET invalida também sua resposta.
+            if (generation !== expectedGeneration || revision() !== expectedRevision || day() !== expectedDay) {
+                refreshAfterFlight = true;
+                return;
+            }
             previous = counts;
+            confirmedAt = Date.now();
             render(counts);
+            save(counts, expectedRevision);
         } catch (_) {
             panel.dataset.state = "error";
             count.dataset.stale = "true";
@@ -90,6 +147,9 @@
                 summary.setAttribute("aria-label", "Consultar alertas de estoque: contagem indisponível.");
                 status.textContent = "Não foi possível consultar os alertas. Tente atualizar a contagem.";
             } else {
+                if (generation === expectedGeneration && revision() === expectedRevision) {
+                    save(previous, expectedRevision, true);
+                }
                 count.title = "Contagem anterior; atualização não confirmada.";
                 summary.setAttribute("aria-label", "Consultar alertas de estoque: contagem anterior de "
                     + previous.total + " alertas. Atualização não confirmada.");
@@ -100,14 +160,37 @@
             inFlight = false;
             button.disabled = false;
             panel.setAttribute("aria-busy", "false");
+            if (refreshAfterFlight) {
+                refreshAfterFlight = false;
+                refresh(true);
+            }
         }
     }
 
-    panel.addEventListener("toggle", () => { if (panel.open) refresh(true); });
+    window.estoqueNotificacoes = {invalidar: invalidate};
+    panel.addEventListener("toggle", () => { if (panel.open) refresh(); });
     button.addEventListener("click", () => refresh(true));
     window.addEventListener("focus", () => { if (document.visibilityState !== "hidden") refresh(); });
+    window.addEventListener("pageshow", () => { if (document.visibilityState !== "hidden") refresh(); });
     document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") refresh();
     });
-    refresh();
+    window.addEventListener("storage", (event) => {
+        if (event.key !== revisionKey && event.key !== null) return;
+        // Não retransmitir o evento para evitar um ciclo entre abas.
+        generation += 1;
+        lastAttempt = null;
+        try { window.sessionStorage.removeItem(cacheKey); } catch (_) { /* indisponível */ }
+        count.dataset.stale = "true";
+        if (document.visibilityState !== "hidden") {
+            if (inFlight) refreshAfterFlight = true;
+            else refresh(true);
+        }
+    });
+    window.setInterval(() => {
+        if (document.visibilityState !== "hidden") refresh();
+    }, automaticCooldown);
+    restore();
+    if (panel.dataset.invalidar === "true") invalidate();
+    else refresh();
 })();

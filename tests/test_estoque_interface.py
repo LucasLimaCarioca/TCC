@@ -152,7 +152,8 @@ def test_navegacao_oferece_consulta_de_alertas_e_script_local(stock_document):
     document = stock_document
     panel = document.by_id("estoque-notificacoes")
     assert panel["tag"] == "details"
-    assert panel["attrs"]["data-api"] == "/api/estoque/alertas"
+    assert panel["attrs"]["data-api"] == "/api/estoque/alertas/resumo"
+    assert panel["attrs"]["data-cache-scope"]
     descendants = document.descendants(panel)
     assert any(node["tag"] == "summary" and node["attrs"].get("aria-label")
                for node in descendants)

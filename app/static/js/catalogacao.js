@@ -251,6 +251,7 @@
                     headers: {"Content-Type": "application/json"}, body: JSON.stringify({...data, operacao_id: target.dataset.operation})});
                 const result = await response.json();
                 if (!response.ok) throw new Error(result.erro || "Não foi possível registrar a operação.");
+                window.estoqueNotificacoes?.invalidar();
                 saved = true;
                 const updated = await read();
                 target.elements.confirmar.checked = false;

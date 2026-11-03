@@ -7,7 +7,7 @@ import json
 from uuid import UUID, uuid4
 
 from sqlalchemy import select, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.database import db
 from app.models.alerta_estoque import AlertaEstoque
@@ -336,34 +336,68 @@ def sincronizar_alertas():
         return {"itens_verificados": checked}
 
 
+def _avaliacoes_alertas(session, alerts, active_execution, *, somente_persistido=False):
+    """Reutiliza metadados e confirmação por produto apenas nesta leitura."""
+    from app.models.catalogacao_historica import RevisaoAssociacaoHistorica
+    from app.services.alerta_preventivo_service import estado_alerta_preventivo
+    from app.services.catalogacao_service import associacao_revisada, _historico
+    from app.services.experimento_previsao_service import validar_publicacao_experimental, ExperimentoError
+
+    metadata = None
+    confirmations = {}
+    active_run = active_execution.id if active_execution else None
+
+    def confirmed(product):
+        nonlocal metadata
+        if product is None:
+            return False
+        if product.id not in confirmations:
+            valid = False
+            if product.codigo_externo and session.get(RevisaoAssociacaoHistorica, product.id) is not None:
+                if metadata is None:
+                    metadata = _historico(session, somente_persistido=somente_persistido)
+                if associacao_revisada(session, product, metadata=metadata):
+                    try:
+                        validar_publicacao_experimental(session,
+                            active_execution.resultado_json if active_execution else {}, product, metadata=metadata)
+                        valid = True
+                    except ExperimentoError:
+                        pass
+            confirmations[product.id] = valid
+        return confirmations[product.id]
+
+    return {alert.id: estado_alerta_preventivo(alert, alert.produto, active_run,
+                associacao_confirmada=confirmed(alert.produto) if alert.ativo else False)
+            for alert in alerts if alert.tipo_alerta == "risco_futuro"}
+
+
+def resumo_alertas():
+    """Contagens do sino: somente alertas ativos, sem movimentos ou arquivos."""
+    from app.models.previsao_execucao import PrevisaoExecucao
+    with Session(db.engine) as session:
+        alerts = session.scalars(select(AlertaEstoque).where(AlertaEstoque.ativo.is_(True))
+            .options(joinedload(AlertaEstoque.produto))).all()
+        preventive = [alert for alert in alerts if alert.tipo_alerta == "risco_futuro"]
+        active = session.scalar(select(PrevisaoExecucao).where(PrevisaoExecucao.ativa.is_(True))) if preventive else None
+        evaluations = _avaliacoes_alertas(session, preventive, active, somente_persistido=True)
+        return {"total": len(alerts), "immediate": len(alerts) - len(preventive),
+                "preventive": len(preventive),
+                "pending": sum(not value["atual"] for value in evaluations.values())}
+
+
 def visao_estoque():
     # Sessão exclusiva de leitura: consultas não geram/resolvem alertas,
     # não reservam a escrita nem atualizam os timestamps existentes.
     with Session(db.engine) as session:
         products = session.scalars(select(Produto).where(Produto.ativo.is_(True)).order_by(Produto.nome)).all()
         materials = session.scalars(select(MateriaPrima).where(MateriaPrima.ativo.is_(True)).order_by(MateriaPrima.nome)).all()
-        alerts = session.scalars(select(AlertaEstoque).order_by(AlertaEstoque.id.desc())).all()
+        alerts = session.scalars(select(AlertaEstoque).order_by(AlertaEstoque.id.desc())
+            .options(joinedload(AlertaEstoque.produto))).all()
         movements = session.scalars(select(MovimentacaoEstoque).order_by(MovimentacaoEstoque.id.desc()).limit(100)).all()
         from app.models.previsao_execucao import PrevisaoExecucao
-        from app.services.alerta_preventivo_service import estado_alerta_preventivo
         active_execution = session.scalar(select(PrevisaoExecucao).where(PrevisaoExecucao.ativa.is_(True)))
-        active_run = active_execution.id if active_execution else None
-        from app.services.catalogacao_service import associacao_revisada
-        from app.services.experimento_previsao_service import validar_publicacao_experimental, ExperimentoError
         from app.models.catalogacao_historica import RevisaoAssociacaoHistorica
-
-        def confirmed(product):
-            if not associacao_revisada(session, product):
-                return False
-            try:
-                validar_publicacao_experimental(session, active_execution.resultado_json if active_execution else {}, product)
-                return True
-            except ExperimentoError:
-                return False
-
-        evaluations = {alert.id: estado_alerta_preventivo(alert, alert.produto, active_run,
-                        associacao_confirmada=confirmed(alert.produto))
-                       for alert in alerts if alert.tipo_alerta == "risco_futuro"}
+        evaluations = _avaliacoes_alertas(session, alerts, active_execution)
         reviews = {review.produto_id: review for review in session.scalars(select(RevisaoAssociacaoHistorica)).all()}
         return {
             "produtos": [{"produto_id": p.id, "nome": p.nome, "categoria": p.categoria, "sabor": p.sabor,

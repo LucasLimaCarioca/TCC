@@ -3,6 +3,7 @@ from app.database import db
 from decimal import Decimal
 import os
 from pathlib import Path
+from uuid import uuid4
 
 from app.services.preparacao_dados_service import private_path
 
@@ -30,6 +31,8 @@ def create_app(test_config=None):
 
     # Cria a aplicacao Flask. O __name__ ajuda o Flask a encontrar templates e arquivos static.
     app = Flask(__name__)
+    # Separa contagens de processos/bancos diferentes no navegador.
+    app.config['STOCK_NOTIFICATION_SCOPE'] = uuid4().hex
 
     @app.template_filter("quantidade")
     def formatar_quantidade(value):

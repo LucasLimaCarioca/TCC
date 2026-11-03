@@ -69,6 +69,13 @@ def alertas_api():
     return jsonify(EstoqueClient().executar("visao_estoque")["alertas"])
 
 
+@estoque_bp.get("/api/estoque/alertas/resumo")
+def resumo_alertas_api():
+    response = jsonify(EstoqueClient().executar("resumo_alertas"))
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @estoque_bp.post("/api/estoque/alertas/sincronizar")
 def sincronizar_alertas_api():
     return jsonify(EstoqueClient().executar("sincronizar_alertas"))

@@ -372,6 +372,7 @@
                 text("previsao-tarefa-status", "Atualização em andamento. Você pode continuar consultando a publicação atual.");
                 jobTimer = window.setTimeout(() => pollJob(version), 1000);
             } else if (result.status === "concluido") {
+                window.estoqueNotificacoes?.invalidar();
                 activeJob = null;
                 lockUpdate();
                 text("previsao-tarefa-status", "Atualização concluída. Carregando a nova publicação…");

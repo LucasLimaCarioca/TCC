@@ -143,6 +143,30 @@ movimento positiva continuam ativos. Datas de movimentações são UTC.
 
 ## Validação
 
+### Contagem do sino entre telas
+
+O sino consulta `GET /api/estoque/alertas/resumo`, através da autoridade do
+Agente de Estoque. A resposta contém somente `total`, `immediate`, `preventive`
+e `pending`. Essa leitura considera os alertas ativos e verifica saldo, mínimo,
+dia comercial de Manaus, horizonte oficial, publicação e revisão da associação;
+não cria nem resolve alertas, não carrega movimentações e não abre artefatos.
+Os metadados comerciais do relatório são mantidos em memória após a validação
+normal da publicação pelo Agente de Previsão. Na ausência desse snapshot, a
+contagem mantém pendência quando não consegue confirmar a associação pelo banco.
+Os metadados do histórico são consultados uma única vez por leitura, inclusive
+na montagem completa de `/estoque`.
+
+O navegador guarda somente as quatro contagens e dados de validade no
+`sessionStorage`, separados por instância da aplicação. A navegação reutiliza
+imediatamente a contagem por até 30 segundos. Movimentações, alterações de mínimo,
+catalogação, conclusão de previsão e retornos de formulários POST invalidam o
+cache. Um sinal sem dados comerciais no `localStorage` avisa outras abas. A
+revalidação periódica de 30 segundos, somente na aba visível, cobre alterações
+automáticas dos agentes ou feitas em outras sessões. A mudança de dia em Manaus
+também invalida o cache. Abrir o sino respeita a validade; o botão de atualização
+força uma consulta. Em falhas, a última contagem continua visível e é marcada
+como desatualizada; uma falha inicial nunca é apresentada como zero alertas.
+
 ```bash
 python -m pytest -q
 python -m pytest -q --spade tests/test_regressao_tcc_i.py tests/test_atendimento_contexto.py tests/test_atendimento_caracterizacao.py tests/test_estoque_http.py tests/test_correcoes_estoque.py tests/test_estoque_service.py::test_resposta_perdida_mantem_contexto_para_repeticao_segura

@@ -114,8 +114,10 @@ async function harness({data = payload(), response = null, absent = false, mode 
         });
     }
     const calls = [];
+    const invalidations = [];
     let identifiers = 0;
     const context = {
+        window: {estoqueNotificacoes: {invalidar: () => invalidations.push(true)}},
         document: {getElementById: get, createElement: (tag) => new Element(tag)},
         crypto: {randomUUID: () => "00000000-0000-4000-8000-" + String(++identifiers).padStart(12, "0")},
         fetch: async (url, options) => {
@@ -127,7 +129,7 @@ async function harness({data = payload(), response = null, absent = false, mode 
     };
     vm.runInNewContext(source, context, {filename: "catalogacao.js"});
     await settle();
-    return {get, form, reverse, calls, settle,
+    return {get, form, reverse, calls, settle, invalidations,
         get posts() { return calls.filter((call) => call.options.method === "POST"); },
         async submit(target = form) { await target.listeners.submit({preventDefault() {}}); await settle(); },
         async refresh() { await get("catalogacao-atualizar").listeners.click(); await settle(); },
@@ -344,6 +346,7 @@ test("associação envia código com zeros e versões distintas de código e pro
     assert.match(body.operacao_id, /^[0-9a-f-]{36}$/);
     assert.equal(ui.form.elements.confirmar.checked, false);
     assert.match(ui.get("catalogacao-feedback").textContent, /Operação registrada com auditoria/);
+    assert.equal(ui.invalidations.length, 1);
 });
 
 test("criação exige dados comerciais explícitos e envia situação inativa sem inferir valores", async () => {
